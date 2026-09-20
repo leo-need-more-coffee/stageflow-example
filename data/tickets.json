@@ -1,0 +1,60 @@
+{
+  "tickets": [
+    {
+      "id": "T-1001",
+      "customer_id": "C-77",
+      "channel": "email",
+      "subject": "Charged twice for October",
+      "text": "Hi! I see two charges of $49 on the same day (Oct 3) for the Pro plan. I only have one subscription. Please refund the extra one.",
+      "opened_at": "2026-10-04T09:12:00Z"
+    },
+    {
+      "id": "T-1002",
+      "customer_id": "C-12",
+      "channel": "chat",
+      "subject": "Dashboard stuck on loading",
+      "text": "The dashboard has been spinning for ten minutes. Other pages open fine. I tried another browser, same thing. This is blocking my team.",
+      "opened_at": "2026-10-04T10:40:00Z"
+    },
+    {
+      "id": "T-1003",
+      "customer_id": "C-31",
+      "channel": "email",
+      "subject": "Can't log in after email change",
+      "text": "I changed my work email last week and now the login says the account does not exist. The old address is gone, I cannot receive the reset link.",
+      "opened_at": "2026-10-04T11:05:00Z"
+    },
+    {
+      "id": "T-1004",
+      "customer_id": "C-90",
+      "channel": "email",
+      "subject": "API returns 429 after 100 requests",
+      "text": "We are on Enterprise and our export job gets 429 after roughly a hundred calls. The docs say the limit is 1000/min. Has something changed?",
+      "opened_at": "2026-10-04T12:20:00Z"
+    },
+    {
+      "id": "T-1005",
+      "customer_id": "C-12",
+      "channel": "chat",
+      "subject": "Please add dark mode",
+      "text": "Any chance of a dark theme? Half my team works at night and the white background is rough.",
+      "opened_at": "2026-10-04T13:02:00Z"
+    },
+    {
+      "id": "T-1006",
+      "customer_id": "C-05",
+      "channel": "email",
+      "subject": "This is the third week without an answer",
+      "text": "I have written three times about the failed migration and nobody replied. We are paying for Enterprise support. If this is not resolved today we are cancelling.",
+      "opened_at": "2026-10-04T14:15:00Z"
+    },
+    {
+      "id": "T-1007",
+      "customer_id": "C-31",
+      "channel": "chat",
+      "subject": "How do I export to CSV?",
+      "text": "Is there a way to get a report as CSV? I only see the PDF button.",
+      "opened_at": "2026-10-04T15:30:00Z"
+    }
+  ]
+}

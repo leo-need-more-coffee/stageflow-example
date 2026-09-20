@@ -1,0 +1,9 @@
+{
+  "customers": {
+    "C-05": {"name": "Northwind Logistics", "plan": "enterprise", "since": "2023-02-11", "reply_within_hours": 2, "open_tickets": 3},
+    "C-12": {"name": "Pixelsmith Studio", "plan": "pro", "since": "2025-06-30", "reply_within_hours": 8, "open_tickets": 1},
+    "C-31": {"name": "Ada Kowalski", "plan": "free", "since": "2026-09-02", "reply_within_hours": 48, "open_tickets": 0},
+    "C-77": {"name": "Bloom & Co", "plan": "pro", "since": "2024-11-19", "reply_within_hours": 8, "open_tickets": 0},
+    "C-90": {"name": "Helix Data", "plan": "enterprise", "since": "2022-04-01", "reply_within_hours": 2, "open_tickets": 1}
+  }
+}

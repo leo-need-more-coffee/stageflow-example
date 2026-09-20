@@ -1,0 +1,216 @@
+{
+  "metadata": {
+    "title": "3 · Routing",
+    "description": "Two lookups at once, then a switch on urgency: an angry enterprise customer goes straight to a human, everyone else gets an answer written by the model."
+  },
+  "variables": {
+    "ticket_id": "string",
+    "topic": "string",
+    "urgency": "string",
+    "plan": "string",
+    "reply": "string"
+  },
+  "nodes": [
+    {
+      "id": "start",
+      "type": "entry",
+      "variables": {
+        "ticket_id": "T-1001"
+      },
+      "next": "load"
+    },
+    {
+      "id": "load",
+      "type": "stage",
+      "stage": "LoadTicketStage",
+      "arguments": {
+        "vars": {
+          "ticket_id": "ticket_id"
+        }
+      },
+      "outputs": {
+        "text": "text",
+        "subject": "subject",
+        "customer_id": "customer_id"
+      },
+      "next": "triage"
+    },
+    {
+      "id": "triage",
+      "type": "stage",
+      "stage": "LlmTriageStage",
+      "arguments": {
+        "vars": {
+          "text": "text",
+          "subject": "subject",
+          "api_key": "OPENAI_API_KEY"
+        }
+      },
+      "outputs": {
+        "topic": "topic",
+        "urgency": "urgency",
+        "mood": "mood",
+        "summary": "summary"
+      },
+      "next": "gather"
+    },
+    {
+      "id": "gather",
+      "type": "parallel",
+      "branches": [
+        {
+          "id": "who",
+          "entry": "customer"
+        },
+        {
+          "id": "kb",
+          "entry": "search"
+        }
+      ],
+      "next": "route"
+    },
+    {
+      "id": "customer",
+      "type": "stage",
+      "stage": "LoadCustomerStage",
+      "arguments": {
+        "vars": {
+          "customer_id": "customer_id"
+        }
+      },
+      "outputs": {
+        "name": "customer_name",
+        "plan": "plan",
+        "reply_within_hours": "sla_hours"
+      },
+      "next": null
+    },
+    {
+      "id": "search",
+      "type": "stage",
+      "stage": "SearchKnowledgeStage",
+      "arguments": {
+        "vars": {
+          "text": "text",
+          "topic": "topic"
+        }
+      },
+      "outputs": {
+        "found": "found",
+        "answer": "answer",
+        "article_id": "article_id"
+      },
+      "next": null
+    },
+    {
+      "id": "route",
+      "type": "switch",
+      "cases": [
+        {
+          "when": "vars.urgency == 'high'",
+          "next": "escalate_urgent"
+        },
+        {
+          "when": "!vars.found",
+          "next": "escalate_unknown"
+        }
+      ],
+      "default": "write"
+    },
+    {
+      "id": "write",
+      "type": "stage",
+      "stage": "LlmReplyStage",
+      "arguments": {
+        "vars": {
+          "text": "text",
+          "article": "answer",
+          "name": "customer_name",
+          "api_key": "OPENAI_API_KEY"
+        }
+      },
+      "outputs": {
+        "reply": "reply"
+      },
+      "next": "send"
+    },
+    {
+      "id": "send",
+      "type": "stage",
+      "stage": "SendReplyStage",
+      "arguments": {
+        "vars": {
+          "reply": "reply",
+          "ticket_id": "ticket_id"
+        }
+      },
+      "outputs": {
+        "chars": "chars"
+      },
+      "next": "answered"
+    },
+    {
+      "id": "escalate_urgent",
+      "type": "stage",
+      "stage": "EscalateStage",
+      "arguments": {
+        "vars": {
+          "ticket_id": "ticket_id"
+        },
+        "const": {
+          "queue": "tier-2",
+          "reason.$": "'urgent: ' + vars.summary"
+        }
+      },
+      "outputs": {
+        "task_id": "task_id"
+      },
+      "next": "handed_over"
+    },
+    {
+      "id": "escalate_unknown",
+      "type": "stage",
+      "stage": "EscalateStage",
+      "arguments": {
+        "vars": {
+          "ticket_id": "ticket_id"
+        },
+        "const": {
+          "queue": "tier-1",
+          "reason": "no knowledge base article matched"
+        }
+      },
+      "outputs": {
+        "task_id": "task_id"
+      },
+      "next": "handed_over"
+    },
+    {
+      "id": "answered",
+      "type": "terminal",
+      "result": {
+        "status": "answered"
+      },
+      "artifacts": [
+        "reply",
+        "topic",
+        "plan",
+        "article_id"
+      ]
+    },
+    {
+      "id": "handed_over",
+      "type": "terminal",
+      "result": {
+        "status": "escalated"
+      },
+      "artifacts": [
+        "task_id",
+        "topic",
+        "urgency",
+        "plan",
+        "summary"
+      ]
+    }
+  ]
+}

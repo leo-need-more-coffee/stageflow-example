@@ -537,460 +537,491 @@
         }
       ]
     },
-    "LlmMessageStage": {
-      "stage_name": "LlmMessageStage",
+    "LoadTicketStage": {
+      "stage_name": "LoadTicketStage",
       "skipable": false,
-      "allowed_events": [
-        {
-          "type": "llm_delta",
-          "description": "A chunk of the model answer, as soon as it arrived",
-          "payload_schema": {
-            "stream": "bool",
-            "text": "str",
-            "index": "int",
-            "label": "str"
-          }
-        },
-        {
-          "type": "llm_completed",
-          "description": "The answer is finished: length and token usage",
-          "payload_schema": {
-            "chars": "int",
-            "input_tokens": "int",
-            "output_tokens": "int"
-          }
-        }
-      ],
+      "allowed_events": [],
       "allowed_inputs": [],
-      "category": "llm",
-      "icon": "/icons/sparkles.svg",
+      "category": "support.data",
+      "icon": "/icons/ticket.svg",
       "icon_mono": true,
-      "color": "#c084fc",
-      "description": "A request to an OpenAI model: a prompt in, the answer text out",
+      "color": null,
+      "description": "Takes a prepared ticket out of data/tickets.json",
       "arguments": [
         {
-          "name": "prompt",
-          "type": "string",
-          "optional": false,
-          "description": "The user message"
-        },
-        {
-          "name": "system",
+          "name": "ticket_id",
           "type": "string",
           "optional": true,
-          "description": "System prompt: the role and the rules of the answer"
-        },
-        {
-          "name": "model",
-          "type": "string",
-          "optional": true,
-          "description": "Model identifier (each gateway has its own)",
-          "default": "gpt-4o"
-        },
-        {
-          "name": "effort",
-          "type": "string",
-          "optional": true,
-          "description": "reasoning_effort for reasoning models: minimal | low | medium | high"
-        },
-        {
-          "name": "max_tokens",
-          "type": "int",
-          "optional": true,
-          "description": "Limit on the answer length",
-          "default": 4096
-        },
-        {
-          "name": "temperature",
-          "type": "float",
-          "optional": true,
-          "description": "Spread of the answer; empty — the model default"
-        },
-        {
-          "name": "api_key",
-          "type": "string",
-          "optional": true,
-          "description": "API key; empty — taken from the server environment"
-        },
-        {
-          "name": "base_url",
-          "type": "string",
-          "optional": true,
-          "description": "A custom API address (proxy, compatible gateway)"
-        },
-        {
-          "name": "stream",
-          "type": "bool",
-          "optional": true,
-          "description": "Write the answer as a stream, a chunk per event",
-          "default": true
+          "description": "Ticket id (T-1001); empty — the first one in the file"
         }
       ],
       "outputs": [
+        {
+          "name": "ticket",
+          "type": "dict",
+          "optional": false,
+          "description": "The whole ticket"
+        },
         {
           "name": "text",
           "type": "string",
           "optional": false,
-          "description": "The model answer"
+          "description": "The customer's message"
         },
         {
-          "name": "input_tokens",
-          "type": "int",
+          "name": "subject",
+          "type": "string",
           "optional": false,
-          "description": "Input tokens"
+          "description": "The subject line"
         },
         {
-          "name": "output_tokens",
-          "type": "int",
+          "name": "customer_id",
+          "type": "string",
           "optional": false,
-          "description": "Output tokens"
+          "description": "Who wrote it"
         }
       ]
     },
-    "LlmJsonStage": {
-      "stage_name": "LlmJsonStage",
+    "LoadCustomerStage": {
+      "stage_name": "LoadCustomerStage",
       "skipable": false,
-      "allowed_events": [
-        {
-          "type": "llm_delta",
-          "description": "A chunk of the model answer, as soon as it arrived",
-          "payload_schema": {
-            "stream": "bool",
-            "text": "str",
-            "index": "int",
-            "label": "str"
-          }
-        },
-        {
-          "type": "llm_completed",
-          "description": "The answer is finished: length and token usage",
-          "payload_schema": {
-            "chars": "int",
-            "input_tokens": "int",
-            "output_tokens": "int"
-          }
-        }
-      ],
+      "allowed_events": [],
       "allowed_inputs": [],
-      "category": "llm",
-      "icon": "/icons/sparkles.svg",
+      "category": "support.data",
+      "icon": "/icons/user.svg",
       "icon_mono": true,
-      "color": "#a78bfa",
-      "description": "An answer that follows a JSON schema: an object, not text",
+      "color": null,
+      "description": "The customer's plan and how fast they are owed an answer",
       "arguments": [
         {
-          "name": "prompt",
+          "name": "customer_id",
           "type": "string",
           "optional": false,
-          "description": "What to extract or decide"
-        },
-        {
-          "name": "schema",
-          "type": "dict",
-          "optional": false,
-          "description": "JSON Schema of the answer (an object with properties)"
-        },
-        {
-          "name": "system",
-          "type": "string",
-          "optional": true,
-          "description": "System prompt"
-        },
-        {
-          "name": "strict",
-          "type": "bool",
-          "optional": true,
-          "description": "Strict schema: the answer is guaranteed to match it",
-          "default": true
-        },
-        {
-          "name": "model",
-          "type": "string",
-          "optional": true,
-          "description": "Model identifier",
-          "default": "gpt-4o"
-        },
-        {
-          "name": "effort",
-          "type": "string",
-          "optional": true,
-          "description": "reasoning_effort for reasoning models"
-        },
-        {
-          "name": "max_tokens",
-          "type": "int",
-          "optional": true,
-          "description": "Limit on the answer length",
-          "default": 4096
-        },
-        {
-          "name": "api_key",
-          "type": "string",
-          "optional": true,
-          "description": "API key; empty — taken from the server environment"
-        },
-        {
-          "name": "base_url",
-          "type": "string",
-          "optional": true,
-          "description": "A custom API address"
-        },
-        {
-          "name": "stream",
-          "type": "bool",
-          "optional": true,
-          "description": "Write the answer as a stream, a chunk per event",
-          "default": true
+          "description": "Customer id (C-77)"
         }
       ],
       "outputs": [
         {
-          "name": "data",
+          "name": "customer",
           "type": "dict",
           "optional": false,
-          "description": "The parsed answer object"
+          "description": "The whole customer record"
         },
         {
-          "name": "input_tokens",
-          "type": "int",
+          "name": "name",
+          "type": "string",
           "optional": false,
-          "description": "Input tokens"
+          "description": "Who to address in the reply"
         },
         {
-          "name": "output_tokens",
+          "name": "plan",
+          "type": "string",
+          "optional": false,
+          "description": "free | pro | enterprise"
+        },
+        {
+          "name": "reply_within_hours",
           "type": "int",
           "optional": false,
-          "description": "Output tokens"
+          "description": "The promised answer time for that plan"
         }
       ]
     },
-    "LlmClassifyStage": {
-      "stage_name": "LlmClassifyStage",
+    "ClassifyByRulesStage": {
+      "stage_name": "ClassifyByRulesStage",
       "skipable": false,
-      "allowed_events": [
-        {
-          "type": "llm_delta",
-          "description": "A chunk of the model answer, as soon as it arrived",
-          "payload_schema": {
-            "stream": "bool",
-            "text": "str",
-            "index": "int",
-            "label": "str"
-          }
-        },
-        {
-          "type": "llm_completed",
-          "description": "The answer is finished: length and token usage",
-          "payload_schema": {
-            "chars": "int",
-            "input_tokens": "int",
-            "output_tokens": "int"
-          }
-        }
-      ],
+      "allowed_events": [],
       "allowed_inputs": [],
-      "category": "llm",
-      "icon": "/icons/sparkles.svg",
+      "category": "support.triage",
+      "icon": "/icons/tag.svg",
       "icon_mono": true,
-      "color": "#8b5cf6",
-      "description": "Assign a text to one of the labels — an input for switch",
+      "color": null,
+      "description": "Topic and urgency by keywords — no model, no network",
       "arguments": [
         {
           "name": "text",
           "type": "string",
           "optional": false,
-          "description": "What is being classified"
+          "description": "The customer's message"
         },
         {
-          "name": "labels",
+          "name": "subject",
+          "type": "string",
+          "optional": true,
+          "description": "The subject line — often the clearest words are there"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "topic",
+          "type": "string",
+          "optional": false,
+          "description": "billing | technical | account | product | other"
+        },
+        {
+          "name": "urgency",
+          "type": "string",
+          "optional": false,
+          "description": "low | normal | high"
+        },
+        {
+          "name": "matched",
           "type": "list",
           "optional": false,
-          "description": "Allowed labels (the answer will be one of them)"
+          "description": "The words the decision was made on — so it can be argued with"
+        }
+      ]
+    },
+    "SearchKnowledgeStage": {
+      "stage_name": "SearchKnowledgeStage",
+      "skipable": false,
+      "allowed_events": [],
+      "allowed_inputs": [],
+      "category": "support.data",
+      "icon": "/icons/book.svg",
+      "icon_mono": true,
+      "color": null,
+      "description": "Looks for an article in the knowledge base by topic and words",
+      "arguments": [
+        {
+          "name": "text",
+          "type": "string",
+          "optional": false,
+          "description": "The customer's message"
         },
         {
-          "name": "criteria",
+          "name": "topic",
           "type": "string",
           "optional": true,
-          "description": "What to go by when choosing"
-        },
-        {
-          "name": "model",
-          "type": "string",
-          "optional": true,
-          "description": "Model identifier",
-          "default": "gpt-4o"
-        },
-        {
-          "name": "effort",
-          "type": "string",
-          "optional": true,
-          "description": "reasoning_effort for reasoning models"
-        },
-        {
-          "name": "api_key",
-          "type": "string",
-          "optional": true,
-          "description": "API key; empty — taken from the server environment"
-        },
-        {
-          "name": "base_url",
-          "type": "string",
-          "optional": true,
-          "description": "A custom API address"
+          "description": "Narrows the search down to one topic"
         }
       ],
       "outputs": [
         {
-          "name": "label",
+          "name": "found",
+          "type": "bool",
+          "optional": false,
+          "description": "Whether anything matched — the graph branches on this"
+        },
+        {
+          "name": "article",
+          "type": "dict",
+          "optional": false,
+          "description": "The article, or the fallback one when nothing matched"
+        },
+        {
+          "name": "answer",
           "type": "string",
           "optional": false,
-          "description": "The chosen label — exactly one of labels"
+          "description": "The article text, with {placeholders} still in it"
+        },
+        {
+          "name": "article_id",
+          "type": "string",
+          "optional": false,
+          "description": "Which article it was"
+        }
+      ]
+    },
+    "RenderReplyStage": {
+      "stage_name": "RenderReplyStage",
+      "skipable": false,
+      "allowed_events": [],
+      "allowed_inputs": [],
+      "category": "support.reply",
+      "icon": "/icons/pen.svg",
+      "icon_mono": true,
+      "color": null,
+      "description": "Fills the placeholders of an answer: {ticket_id}, {name}, …",
+      "arguments": [
+        {
+          "name": "answer",
+          "type": "string",
+          "optional": false,
+          "description": "The text with {placeholders}"
+        },
+        {
+          "name": "*",
+          "type": "any",
+          "optional": true,
+          "description": "Anything else becomes a placeholder value"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "reply",
+          "type": "string",
+          "optional": false,
+          "description": "The finished reply"
+        },
+        {
+          "name": "missing",
+          "type": "list",
+          "optional": false,
+          "description": "Placeholders nothing was given for — they stay as they are"
+        }
+      ]
+    },
+    "SendReplyStage": {
+      "stage_name": "SendReplyStage",
+      "skipable": false,
+      "allowed_events": [
+        {
+          "type": "reply_chunk",
+          "description": "A piece of the reply as it is typed out",
+          "payload_schema": {
+            "stream": "bool",
+            "text": "str",
+            "label": "str"
+          }
+        },
+        {
+          "type": "reply_sent",
+          "description": "The reply left for the customer",
+          "payload_schema": {
+            "ticket_id": "str",
+            "channel": "str",
+            "chars": "int"
+          }
+        }
+      ],
+      "allowed_inputs": [],
+      "category": "support.reply",
+      "icon": "/icons/send.svg",
+      "icon_mono": true,
+      "color": null,
+      "description": "Sends the reply to the customer — and types it out as it goes",
+      "arguments": [
+        {
+          "name": "reply",
+          "type": "string",
+          "optional": false,
+          "description": "What to send"
+        },
+        {
+          "name": "ticket_id",
+          "type": "string",
+          "optional": true,
+          "description": "Which ticket it answers"
+        },
+        {
+          "name": "channel",
+          "type": "string",
+          "optional": true,
+          "description": "email | chat",
+          "default": "email"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "sent",
+          "type": "bool",
+          "optional": false,
+          "description": "Always true — a failure is an exception, not a flag"
+        },
+        {
+          "name": "chars",
+          "type": "int",
+          "optional": false,
+          "description": "How long the reply was"
+        }
+      ]
+    },
+    "EscalateStage": {
+      "stage_name": "EscalateStage",
+      "skipable": false,
+      "allowed_events": [
+        {
+          "type": "escalated",
+          "description": "The ticket went to a human",
+          "payload_schema": {
+            "ticket_id": "str",
+            "queue": "str",
+            "reason": "str"
+          }
+        }
+      ],
+      "allowed_inputs": [],
+      "category": "support.reply",
+      "icon": "/icons/escalate.svg",
+      "icon_mono": true,
+      "color": null,
+      "description": "Hands the ticket to a human and says why",
+      "arguments": [
+        {
+          "name": "ticket_id",
+          "type": "string",
+          "optional": false,
+          "description": "Which ticket"
         },
         {
           "name": "reason",
           "type": "string",
           "optional": false,
-          "description": "A short justification of the choice"
-        }
-      ]
-    },
-    "HttpGetStage": {
-      "stage_name": "HttpGetStage",
-      "skipable": false,
-      "allowed_events": [],
-      "allowed_inputs": [],
-      "category": "net",
-      "icon": "/icons/globe.svg",
-      "icon_mono": true,
-      "color": null,
-      "description": "A real GET request: status, body and parsed JSON",
-      "arguments": [
+          "description": "Why a person is needed"
+        },
         {
-          "name": "url",
+          "name": "queue",
           "type": "string",
-          "optional": false,
-          "description": "Request address"
-        },
-        {
-          "name": "headers",
-          "type": "dict",
           "optional": true,
-          "description": "Additional headers"
-        },
-        {
-          "name": "timeout",
-          "type": "float",
-          "optional": true,
-          "description": "How long to wait for the answer, seconds",
-          "default": 15
-        },
-        {
-          "name": "max_bytes",
-          "type": "int",
-          "optional": true,
-          "description": "How much of the body to read: a whole answer may not fit the frame",
-          "default": 200000
+          "description": "Which queue it goes into",
+          "default": "tier-2"
         }
       ],
       "outputs": [
         {
-          "name": "status",
-          "type": "int",
+          "name": "task_id",
+          "type": "string",
           "optional": false,
-          "description": "HTTP status code"
+          "description": "The id of the task created for the human"
         },
         {
-          "name": "body",
+          "name": "queue",
           "type": "string",
           "optional": false,
-          "description": "Response body (truncated to max_bytes)"
-        },
-        {
-          "name": "json",
-          "type": "any",
-          "optional": false,
-          "description": "Parsed JSON, or null if the body is not JSON"
+          "description": "Where it landed"
         }
       ]
     },
-    "HttpRequestStage": {
-      "stage_name": "HttpRequestStage",
+    "LlmTriageStage": {
+      "stage_name": "LlmTriageStage",
       "skipable": false,
       "allowed_events": [],
       "allowed_inputs": [],
-      "category": "demo.io",
-      "icon": "/icons/globe.svg",
-      "icon_mono": true,
-      "color": null,
-      "description": "Demo stage: the icon is a link to an SVG file",
-      "arguments": [
-        {
-          "name": "url",
-          "type": "string",
-          "optional": false,
-          "description": "Request address"
-        }
-      ],
-      "outputs": [
-        {
-          "name": "body",
-          "type": "any",
-          "optional": false,
-          "description": "Response body"
-        }
-      ]
-    },
-    "QueryDbStage": {
-      "stage_name": "QueryDbStage",
-      "skipable": false,
-      "allowed_events": [],
-      "allowed_inputs": [],
-      "category": "demo.io",
-      "icon": "/icons/database.svg",
-      "icon_mono": true,
-      "color": null,
-      "description": "Demo stage: an SVG icon from a local folder",
-      "arguments": [
-        {
-          "name": "query",
-          "type": "string",
-          "optional": false,
-          "description": "SQL query"
-        }
-      ],
-      "outputs": [
-        {
-          "name": "rows",
-          "type": "list",
-          "optional": false,
-          "description": "Result rows"
-        }
-      ]
-    },
-    "LlmCompleteStage": {
-      "stage_name": "LlmCompleteStage",
-      "skipable": false,
-      "allowed_events": [],
-      "allowed_inputs": [],
-      "category": "demo.llm",
+      "category": "support.triage",
       "icon": "/icons/sparkles.svg",
       "icon_mono": true,
       "color": "#c084fc",
-      "description": "Demo stage: own icon and an explicit accent color",
+      "description": "Reads the ticket: topic, urgency, mood, one-line summary",
       "arguments": [
         {
-          "name": "prompt",
+          "name": "text",
           "type": "string",
           "optional": false,
-          "description": "Prompt for the model"
+          "description": "The customer's message"
+        },
+        {
+          "name": "subject",
+          "type": "string",
+          "optional": true,
+          "description": "The subject line, if there is one"
+        },
+        {
+          "name": "model",
+          "type": "string",
+          "optional": true,
+          "description": "Model identifier (every gateway has its own)"
+        },
+        {
+          "name": "api_key",
+          "type": "string",
+          "optional": true,
+          "description": "API key; empty — from the server environment"
+        },
+        {
+          "name": "base_url",
+          "type": "string",
+          "optional": true,
+          "description": "A custom API address (proxy, gateway, local stub)"
         }
       ],
       "outputs": [
         {
-          "name": "completion",
+          "name": "topic",
           "type": "string",
           "optional": false,
-          "description": "Model answer"
+          "description": "billing | technical | account | product | other"
+        },
+        {
+          "name": "urgency",
+          "type": "string",
+          "optional": false,
+          "description": "low | normal | high"
+        },
+        {
+          "name": "mood",
+          "type": "string",
+          "optional": false,
+          "description": "calm | annoyed | angry"
+        },
+        {
+          "name": "summary",
+          "type": "string",
+          "optional": false,
+          "description": "What the ticket is about, in one sentence"
+        }
+      ]
+    },
+    "LlmReplyStage": {
+      "stage_name": "LlmReplyStage",
+      "skipable": false,
+      "allowed_events": [
+        {
+          "type": "reply_chunk",
+          "description": "A piece of the reply, as soon as it arrived",
+          "payload_schema": {
+            "stream": "bool",
+            "text": "str",
+            "label": "str"
+          }
+        }
+      ],
+      "allowed_inputs": [],
+      "category": "support.reply",
+      "icon": "/icons/sparkles.svg",
+      "icon_mono": true,
+      "color": "#a78bfa",
+      "description": "Writes the reply from the knowledge base article — as a stream",
+      "arguments": [
+        {
+          "name": "text",
+          "type": "string",
+          "optional": false,
+          "description": "The customer's message"
+        },
+        {
+          "name": "article",
+          "type": "string",
+          "optional": false,
+          "description": "The knowledge base answer to build on"
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "optional": true,
+          "description": "Who to greet"
+        },
+        {
+          "name": "model",
+          "type": "string",
+          "optional": true,
+          "description": "Model identifier"
+        },
+        {
+          "name": "api_key",
+          "type": "string",
+          "optional": true,
+          "description": "API key; empty — from the server environment"
+        },
+        {
+          "name": "base_url",
+          "type": "string",
+          "optional": true,
+          "description": "A custom API address"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "reply",
+          "type": "string",
+          "optional": false,
+          "description": "The finished reply"
+        },
+        {
+          "name": "chars",
+          "type": "int",
+          "optional": false,
+          "description": "Its length"
         }
       ]
     }

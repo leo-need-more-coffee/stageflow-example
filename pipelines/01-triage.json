@@ -1,0 +1,42 @@
+{
+  "metadata": {
+    "title": "1 · Triage",
+    "description": "The smallest useful graph: take a ticket, let the model read it. Five nodes, one straight line."
+  },
+  "variables": {
+    "ticket_id": "string",
+    "topic": "string",
+    "urgency": "string",
+    "summary": "string"
+  },
+  "nodes": [
+    {
+      "id": "start",
+      "type": "entry",
+      "variables": {"ticket_id": "T-1002"},
+      "next": "load"
+    },
+    {
+      "id": "load",
+      "type": "stage",
+      "stage": "LoadTicketStage",
+      "arguments": {"vars": {"ticket_id": "ticket_id"}},
+      "outputs": {"text": "text", "subject": "subject"},
+      "next": "triage"
+    },
+    {
+      "id": "triage",
+      "type": "stage",
+      "stage": "LlmTriageStage",
+      "arguments": {"vars": {"text": "text", "subject": "subject", "api_key": "OPENAI_API_KEY"}},
+      "outputs": {"topic": "topic", "urgency": "urgency", "mood": "mood", "summary": "summary"},
+      "next": "done"
+    },
+    {
+      "id": "done",
+      "type": "terminal",
+      "result": {"status": "triaged"},
+      "artifacts": ["topic", "urgency", "mood", "summary"]
+    }
+  ]
+}

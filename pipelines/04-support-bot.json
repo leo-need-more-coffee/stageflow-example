@@ -1,0 +1,357 @@
+{
+  "metadata": {
+    "title": "4 · The whole bot",
+    "description": "Everything at once: a try block that falls back to keyword rules when the model is unavailable, retries on a rate limit, two lookups in parallel, routing by urgency, and a subpipeline that writes the reply."
+  },
+  "variables": {
+    "ticket_id": "string",
+    "topic": "string",
+    "urgency": "string",
+    "summary": "string",
+    "plan": "string",
+    "reply": "string"
+  },
+  "nodes": [
+    {
+      "id": "start",
+      "type": "entry",
+      "variables": {
+        "ticket_id": "T-1006"
+      },
+      "next": "load"
+    },
+    {
+      "id": "load",
+      "type": "stage",
+      "stage": "LoadTicketStage",
+      "arguments": {
+        "vars": {
+          "ticket_id": "ticket_id"
+        }
+      },
+      "outputs": {
+        "text": "text",
+        "subject": "subject",
+        "customer_id": "customer_id"
+      },
+      "next": "guard"
+    },
+    {
+      "id": "guard",
+      "type": "try",
+      "body": "triage",
+      "next": "gather",
+      "except": [
+        {
+          "error_equals": [
+            "LlmAuthError"
+          ],
+          "next": "rules",
+          "result_var": "llm_error"
+        },
+        {
+          "error_equals": [
+            "*"
+          ],
+          "next": "rules",
+          "result_var": "llm_error"
+        }
+      ]
+    },
+    {
+      "id": "triage",
+      "type": "stage",
+      "stage": "LlmTriageStage",
+      "arguments": {
+        "vars": {
+          "text": "text",
+          "subject": "subject",
+          "api_key": "OPENAI_API_KEY"
+        }
+      },
+      "outputs": {
+        "topic": "topic",
+        "urgency": "urgency",
+        "mood": "mood",
+        "summary": "summary"
+      },
+      "retry": [
+        {
+          "error_equals": [
+            "LlmRateLimited",
+            "LlmUnavailable"
+          ],
+          "max_attempts": 3,
+          "interval_seconds": 2
+        }
+      ]
+    },
+    {
+      "id": "rules",
+      "type": "stage",
+      "stage": "ClassifyByRulesStage",
+      "arguments": {
+        "vars": {
+          "text": "text",
+          "subject": "subject"
+        }
+      },
+      "outputs": {
+        "topic": "topic",
+        "urgency": "urgency"
+      },
+      "next": "rules_summary"
+    },
+    {
+      "id": "rules_summary",
+      "type": "stage",
+      "stage": "CopyValueStage",
+      "arguments": {
+        "vars": {
+          "value": "subject"
+        }
+      },
+      "outputs": {
+        "value": "summary"
+      },
+      "next": "gather"
+    },
+    {
+      "id": "gather",
+      "type": "parallel",
+      "branches": [
+        {
+          "id": "who",
+          "entry": "customer"
+        },
+        {
+          "id": "kb",
+          "entry": "search"
+        }
+      ],
+      "next": "route"
+    },
+    {
+      "id": "customer",
+      "type": "stage",
+      "stage": "LoadCustomerStage",
+      "arguments": {
+        "vars": {
+          "customer_id": "customer_id"
+        }
+      },
+      "outputs": {
+        "customer": "customer",
+        "name": "customer_name",
+        "plan": "plan"
+      },
+      "next": null
+    },
+    {
+      "id": "search",
+      "type": "stage",
+      "stage": "SearchKnowledgeStage",
+      "arguments": {
+        "vars": {
+          "text": "text",
+          "topic": "topic"
+        }
+      },
+      "outputs": {
+        "found": "found",
+        "answer": "answer",
+        "article_id": "article_id"
+      },
+      "next": null
+    },
+    {
+      "id": "route",
+      "type": "switch",
+      "cases": [
+        {
+          "when": "vars.urgency == 'high'",
+          "next": "escalate_urgent"
+        },
+        {
+          "when": "!vars.found",
+          "next": "escalate_unknown"
+        }
+      ],
+      "default": "compose"
+    },
+    {
+      "id": "compose",
+      "type": "subpipeline",
+      "subpipeline_id": "compose_reply",
+      "inputs": {
+        "text": "text",
+        "article": "answer",
+        "name": "customer_name",
+        "ticket_id": "ticket_id"
+      },
+      "artifact_outputs": {
+        "reply": "reply"
+      },
+      "next": "send"
+    },
+    {
+      "id": "send",
+      "type": "stage",
+      "stage": "SendReplyStage",
+      "arguments": {
+        "vars": {
+          "reply": "reply",
+          "ticket_id": "ticket_id"
+        }
+      },
+      "outputs": {
+        "chars": "chars"
+      },
+      "next": "answered"
+    },
+    {
+      "id": "escalate_urgent",
+      "type": "stage",
+      "stage": "EscalateStage",
+      "arguments": {
+        "vars": {
+          "ticket_id": "ticket_id"
+        },
+        "const": {
+          "queue": "tier-2",
+          "reason.$": "'urgent: ' + vars.summary"
+        }
+      },
+      "outputs": {
+        "task_id": "task_id"
+      },
+      "next": "handed_over"
+    },
+    {
+      "id": "escalate_unknown",
+      "type": "stage",
+      "stage": "EscalateStage",
+      "arguments": {
+        "vars": {
+          "ticket_id": "ticket_id"
+        },
+        "const": {
+          "queue": "tier-1",
+          "reason": "no knowledge base article matched"
+        }
+      },
+      "outputs": {
+        "task_id": "task_id"
+      },
+      "next": "handed_over"
+    },
+    {
+      "id": "answered",
+      "type": "terminal",
+      "result": {
+        "status": "answered"
+      },
+      "artifacts": [
+        "reply",
+        "topic",
+        "urgency",
+        "plan",
+        "article_id"
+      ]
+    },
+    {
+      "id": "handed_over",
+      "type": "terminal",
+      "result": {
+        "status": "escalated"
+      },
+      "artifacts": [
+        "task_id",
+        "topic",
+        "urgency",
+        "plan",
+        "summary"
+      ]
+    }
+  ],
+  "subpipelines": {
+    "compose_reply": {
+      "nodes": [
+        {
+          "id": "sub_start",
+          "type": "entry",
+          "variables": {
+            "name": "there"
+          },
+          "next": "sub_guard"
+        },
+        {
+          "id": "sub_guard",
+          "type": "try",
+          "body": "write",
+          "next": "sub_done",
+          "except": [
+            {
+              "error_equals": [
+                "*"
+              ],
+              "next": "from_template",
+              "result_var": "write_error"
+            }
+          ]
+        },
+        {
+          "id": "write",
+          "type": "stage",
+          "stage": "LlmReplyStage",
+          "arguments": {
+            "vars": {
+              "text": "text",
+              "article": "article",
+              "name": "name",
+              "api_key": "OPENAI_API_KEY"
+            }
+          },
+          "outputs": {
+            "reply": "reply"
+          },
+          "retry": [
+            {
+              "error_equals": [
+                "LlmRateLimited",
+                "LlmUnavailable"
+              ],
+              "max_attempts": 2,
+              "interval_seconds": 2
+            }
+          ]
+        },
+        {
+          "id": "from_template",
+          "type": "stage",
+          "stage": "RenderReplyStage",
+          "arguments": {
+            "vars": {
+              "answer": "article",
+              "ticket_id": "ticket_id"
+            }
+          },
+          "outputs": {
+            "reply": "reply"
+          },
+          "next": "sub_done"
+        },
+        {
+          "id": "sub_done",
+          "type": "terminal",
+          "result": {
+            "status": "written"
+          },
+          "artifacts": [
+            "reply"
+          ]
+        }
+      ]
+    }
+  }
+}

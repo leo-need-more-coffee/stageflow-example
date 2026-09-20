@@ -1,19 +1,20 @@
-"""An example StageFlow backend for the StageFlow editor.
+"""A support bot as a StageFlow backend for the StageFlow editor.
 
     python serve.py [port]
 
 The editor (github.com/leo-need-more-coffee/stageflow-ui) is pure static
 front-end: it holds no stage registry and executes nothing. Everything it
 needs it asks a backend for, over the URL the user types on the connection
-screen. This is such a backend, in about two hundred lines:
+screen. This is such a backend — a support bot whose stages read prepared
+tickets, look answers up in a knowledge base and write replies:
 
   * ``GET /api/stages`` — live stage specs from the StageFlow core;
   * ``GET /api/secrets`` — NAMES of the secrets in the server environment
     (``SF_SECRETS=A,B`` and/or ``SF_SECRET_A=...``); values are never handed
     out — the run substitutes them;
   * ``/api/run…`` — running a pipeline with step debugging (``runner_api.py``);
-  * the static files of this folder — the SVG icons the demo stages refer to
-    and the ready-made pipelines in ``pipelines/``.
+  * the static files of this folder — the SVG icons the stages refer to, the
+    ready-made pipelines in ``pipelines/`` and the fixtures in ``data/``.
 
 Pipelines are executed by the REAL core: a second implementation of the
 semantics in JavaScript would mean the debugger shows something other than
@@ -22,11 +23,10 @@ what actually happens.
 The editor is served from a different origin, so every answer carries CORS
 headers (``SF_ALLOW_ORIGIN`` narrows them down from the default ``*``).
 
-It also registers a few demo stages whose icons are links to the SVG files in
-./icons — to show that `icon` in a docstring takes more than a glyph. Next
-door, in ``llm_stages.py``, live stages that really do call the OpenAI API and
-the network: the demo pipeline ``pipelines/llm-demo-pipeline.json`` is built on
-them.
+The stages live next door: ``support_stages.py`` (tickets, the knowledge base,
+replies — prepared data, no network) and ``llm_stages.py`` (the two that
+actually call a model). The pipelines in ``pipelines/`` go from four nodes to
+the full thing.
 """
 import importlib.util
 import json
@@ -55,87 +55,20 @@ HOST = os.environ.get("SF_HOST", "127.0.0.1")
 if importlib.util.find_spec("stageflow") is None:
     sys.path.insert(0, str(ROOT.parent / "stageflow"))
 
-from stageflow import BaseStage, register_stage  # noqa: E402
-
 from runner_api import RunManager, env_secret_names, sse_lines  # noqa: E402
 
-# Real stages (OpenAI API and HTTP) — registered by the import itself.
-# Without the `openai` SDK the editor must still open: the llm_stages stages
-# simply will not be in the registry, and the demo pipeline built on them will
-# not run.
+# The stages of the bot register themselves on import. The ones that read the
+# prepared data have no dependencies; the two that call a model need the
+# `openai` SDK, and without it the rest must still work — a pipeline built on
+# rules does not care.
+import support_stages  # noqa: E402,F401
+
 try:
     import llm_stages  # noqa: E402,F401
 except ImportError as exc:  # pragma: no cover - depends on the environment
     print(f"LLM stages disabled ({exc}); install the SDK: pip install openai")
 
 RUNS = RunManager()
-
-
-@register_stage("HttpRequestStage")
-class HttpRequestStage(BaseStage):
-    """
-    description: "Demo stage: the icon is a link to an SVG file"
-    icon: "/icons/globe.svg"
-    icon_mono: true
-    arguments:
-      url:
-        type: string
-        description: "Request address"
-    outputs:
-      body:
-        type: any
-        description: "Response body"
-    """
-
-    category = "demo.io"
-
-    async def run(self):
-        self.set_outputs({"body": {"demo": True}})
-
-
-@register_stage("QueryDbStage")
-class QueryDbStage(BaseStage):
-    """
-    description: "Demo stage: an SVG icon from a local folder"
-    icon: "/icons/database.svg"
-    icon_mono: true
-    arguments:
-      query:
-        type: string
-        description: "SQL query"
-    outputs:
-      rows:
-        type: list
-        description: "Result rows"
-    """
-
-    category = "demo.io"
-
-    async def run(self):
-        self.set_outputs({"rows": []})
-
-
-@register_stage("LlmCompleteStage")
-class LlmCompleteStage(BaseStage):
-    """
-    description: "Demo stage: own icon and an explicit accent color"
-    icon: "/icons/sparkles.svg"
-    icon_mono: true
-    color: "#c084fc"
-    arguments:
-      prompt:
-        type: string
-        description: "Prompt for the model"
-    outputs:
-      completion:
-        type: string
-        description: "Model answer"
-    """
-
-    category = "demo.llm"
-
-    async def run(self):
-        self.set_outputs({"completion": ""})
 
 
 class Handler(SimpleHTTPRequestHandler):

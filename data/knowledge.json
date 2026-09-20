@@ -1,0 +1,53 @@
+{
+  "articles": [
+    {
+      "id": "KB-billing-double-charge",
+      "topic": "billing",
+      "title": "A charge appears twice",
+      "tags": ["charge", "charged", "twice", "double", "refund", "invoice"],
+      "answer": "A duplicate charge usually means the card was retried after a network timeout — the second attempt goes through while the first one is still pending. We refund the extra charge on our side; it lands back on the card within 5-10 business days. I have requested the refund for {ticket_id}."
+    },
+    {
+      "id": "KB-billing-refund-window",
+      "topic": "billing",
+      "title": "Refunds and the 30-day window",
+      "tags": ["refund", "money back", "cancel", "charge"],
+      "answer": "Subscriptions are refundable in full within 30 days of the charge. After that we can credit the amount towards the next period instead. Tell me which you prefer and I will set it up."
+    },
+    {
+      "id": "KB-tech-dashboard-loading",
+      "topic": "technical",
+      "title": "The dashboard never finishes loading",
+      "tags": ["dashboard", "loading", "spinning", "stuck", "blank"],
+      "answer": "A dashboard that spins while other pages open is almost always a stale cached bundle. A hard reload (Ctrl+Shift+R, or Cmd+Shift+R) clears it. If it survives that, the workspace has a widget querying a deleted dataset — send me the workspace name and I will point at the widget."
+    },
+    {
+      "id": "KB-tech-rate-limit",
+      "topic": "technical",
+      "title": "HTTP 429 before the documented limit",
+      "tags": ["429", "rate limit", "throttle", "api", "too many requests"],
+      "answer": "The 1000/min limit is per workspace, but bursts are additionally capped per token at 100 requests in 10 seconds. An export job that fires everything at once hits the burst cap first. Spreading the calls, or asking us to raise the burst cap for the token, fixes it."
+    },
+    {
+      "id": "KB-account-email-change",
+      "topic": "account",
+      "title": "Locked out after changing the email",
+      "tags": ["login", "email", "password", "reset", "locked", "account"],
+      "answer": "The login is tied to the address the account was created with until the new one is confirmed. Since the old mailbox is gone, we verify ownership another way: reply from the new address with the workspace name and the last invoice number, and support moves the login over."
+    },
+    {
+      "id": "KB-product-export-csv",
+      "topic": "product",
+      "title": "Exporting a report as CSV",
+      "tags": ["csv", "export", "download", "report", "spreadsheet"],
+      "answer": "The CSV export sits behind the same button as the PDF one: open the report, click Export and pick CSV in the dropdown. On the free plan the export is capped at 10 000 rows per file."
+    }
+  ],
+  "fallback": {
+    "id": "KB-none",
+    "topic": "other",
+    "title": "No article matched",
+    "tags": [],
+    "answer": "I could not find a ready answer for this one, so I am passing it to a person who can look at the account directly."
+  }
+}

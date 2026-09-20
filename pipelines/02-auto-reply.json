@@ -1,0 +1,90 @@
+{
+  "metadata": {
+    "title": "2 · Auto-reply",
+    "description": "Triage, then look for an answer in the knowledge base. Found one — reply; did not — hand it to a person. The first branching."
+  },
+  "variables": {
+    "ticket_id": "string",
+    "topic": "string",
+    "answer": "string",
+    "reply": "string"
+  },
+  "nodes": [
+    {
+      "id": "start",
+      "type": "entry",
+      "variables": {"ticket_id": "T-1007"},
+      "next": "load"
+    },
+    {
+      "id": "load",
+      "type": "stage",
+      "stage": "LoadTicketStage",
+      "arguments": {"vars": {"ticket_id": "ticket_id"}},
+      "outputs": {"text": "text", "subject": "subject"},
+      "next": "triage"
+    },
+    {
+      "id": "triage",
+      "type": "stage",
+      "stage": "LlmTriageStage",
+      "arguments": {"vars": {"text": "text", "subject": "subject", "api_key": "OPENAI_API_KEY"}},
+      "outputs": {"topic": "topic", "urgency": "urgency", "summary": "summary"},
+      "next": "search"
+    },
+    {
+      "id": "search",
+      "type": "stage",
+      "stage": "SearchKnowledgeStage",
+      "arguments": {"vars": {"text": "text", "topic": "topic"}},
+      "outputs": {"found": "found", "answer": "answer", "article_id": "article_id"},
+      "next": "has_answer"
+    },
+    {
+      "id": "has_answer",
+      "type": "condition",
+      "condition": "vars.found",
+      "then": "render",
+      "else": "escalate"
+    },
+    {
+      "id": "render",
+      "type": "stage",
+      "stage": "RenderReplyStage",
+      "arguments": {"vars": {"answer": "answer", "ticket_id": "ticket_id"}},
+      "outputs": {"reply": "reply"},
+      "next": "send"
+    },
+    {
+      "id": "send",
+      "type": "stage",
+      "stage": "SendReplyStage",
+      "arguments": {"vars": {"reply": "reply", "ticket_id": "ticket_id"}},
+      "outputs": {"chars": "chars"},
+      "next": "answered"
+    },
+    {
+      "id": "escalate",
+      "type": "stage",
+      "stage": "EscalateStage",
+      "arguments": {
+        "vars": {"ticket_id": "ticket_id"},
+        "const": {"reason": "no knowledge base article matched"}
+      },
+      "outputs": {"task_id": "task_id"},
+      "next": "handed_over"
+    },
+    {
+      "id": "answered",
+      "type": "terminal",
+      "result": {"status": "answered"},
+      "artifacts": ["reply", "article_id", "topic"]
+    },
+    {
+      "id": "handed_over",
+      "type": "terminal",
+      "result": {"status": "escalated"},
+      "artifacts": ["task_id", "topic", "summary"]
+    }
+  ]
+}
