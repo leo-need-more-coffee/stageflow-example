@@ -1,0 +1,8 @@
+# The StageFlow core — the editor is a client of it, and it is the core that
+# executes the pipelines. A sibling ../stageflow checkout works too: serve.py
+# falls back to it when the package is not installed.
+stageflow-framework>=0.9
+
+# Optional: only the live OpenAI API stages in llm_stages.py need it. Without
+# it the editor still opens, those stages are simply absent from the registry.
+openai

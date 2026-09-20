@@ -1,0 +1,998 @@
+{
+  "stages": {
+    "PickKeysStage": {
+      "stage_name": "PickKeysStage",
+      "skipable": false,
+      "allowed_events": [],
+      "allowed_inputs": [],
+      "category": "builtin.dicts",
+      "icon": "⊂",
+      "icon_mono": false,
+      "color": null,
+      "description": "Pick only specified keys from a dict and return new object",
+      "arguments": [
+        {
+          "name": "src",
+          "type": "object",
+          "optional": false,
+          "description": "Source dict"
+        },
+        {
+          "name": "keys",
+          "type": "list",
+          "optional": false,
+          "description": "Keys to keep in the result"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "result",
+          "type": "object",
+          "optional": false,
+          "description": "Dict containing only picked keys"
+        }
+      ]
+    },
+    "DropKeysStage": {
+      "stage_name": "DropKeysStage",
+      "skipable": false,
+      "allowed_events": [],
+      "allowed_inputs": [],
+      "category": "builtin.dicts",
+      "icon": "⊘",
+      "icon_mono": false,
+      "color": null,
+      "description": "Remove specified keys from dict and return cleaned object",
+      "arguments": [
+        {
+          "name": "src",
+          "type": "object",
+          "optional": false,
+          "description": "Source dict"
+        },
+        {
+          "name": "keys",
+          "type": "list",
+          "optional": false,
+          "description": "Keys to remove from the dict"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "result",
+          "type": "object",
+          "optional": false,
+          "description": "Dict without removed keys"
+        }
+      ]
+    },
+    "AppendListStage": {
+      "stage_name": "AppendListStage",
+      "skipable": false,
+      "allowed_events": [],
+      "allowed_inputs": [],
+      "category": "builtin.lists",
+      "icon": "⊕",
+      "icon_mono": false,
+      "color": null,
+      "description": "Append value to list (creates list if missing)",
+      "arguments": [
+        {
+          "name": "list",
+          "type": "list",
+          "optional": true,
+          "description": "List to append to (empty list if missing)",
+          "default": []
+        },
+        {
+          "name": "value",
+          "type": "any",
+          "optional": false,
+          "description": "Value to append"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "list",
+          "type": "list",
+          "optional": false,
+          "description": "Resulting list after append"
+        }
+      ]
+    },
+    "ExtendListStage": {
+      "stage_name": "ExtendListStage",
+      "skipable": false,
+      "allowed_events": [],
+      "allowed_inputs": [],
+      "category": "builtin.lists",
+      "icon": "⊞",
+      "icon_mono": false,
+      "color": null,
+      "description": "Extend list with items from arguments",
+      "arguments": [
+        {
+          "name": "list",
+          "type": "list",
+          "optional": true,
+          "description": "Base list to extend (empty list if missing)",
+          "default": []
+        },
+        {
+          "name": "items",
+          "type": "list",
+          "optional": false,
+          "description": "Items to extend the list with"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "list",
+          "type": "list",
+          "optional": false,
+          "description": "Resulting list after extend"
+        }
+      ]
+    },
+    "FilterListStage": {
+      "stage_name": "FilterListStage",
+      "skipable": false,
+      "allowed_events": [],
+      "allowed_inputs": [],
+      "category": "builtin.lists",
+      "icon": "▽",
+      "icon_mono": false,
+      "color": null,
+      "description": "Filter list items by CEL condition; current element is bound as `item`",
+      "arguments": [
+        {
+          "name": "items",
+          "type": "list",
+          "optional": false,
+          "description": "List to filter"
+        },
+        {
+          "name": "condition",
+          "type": "string",
+          "optional": false,
+          "description": "CEL condition evaluated per element, e.g. 'item > 2'"
+        },
+        {
+          "name": "*",
+          "type": "any",
+          "optional": false,
+          "description": "Any other argument is visible to the condition as vars.<name>"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "list",
+          "type": "list",
+          "optional": false,
+          "description": "Filtered list"
+        }
+      ]
+    },
+    "UniqueListStage": {
+      "stage_name": "UniqueListStage",
+      "skipable": false,
+      "allowed_events": [],
+      "allowed_inputs": [],
+      "category": "builtin.lists",
+      "icon": "≠",
+      "icon_mono": false,
+      "color": null,
+      "description": "Deduplicate list while preserving original order",
+      "arguments": [
+        {
+          "name": "items",
+          "type": "list",
+          "optional": false,
+          "description": "List to deduplicate"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "list",
+          "type": "list",
+          "optional": false,
+          "description": "List with unique items"
+        }
+      ]
+    },
+    "PopListStage": {
+      "stage_name": "PopListStage",
+      "skipable": false,
+      "allowed_events": [],
+      "allowed_inputs": [],
+      "category": "builtin.lists",
+      "icon": "⊟",
+      "icon_mono": false,
+      "color": null,
+      "description": "Pop element from list (default last) and return list+popped value",
+      "arguments": [
+        {
+          "name": "items",
+          "type": "list",
+          "optional": false,
+          "description": "List to pop from"
+        },
+        {
+          "name": "index",
+          "type": "int",
+          "optional": true,
+          "description": "Index to pop, -1 means last element",
+          "default": -1
+        }
+      ],
+      "outputs": [
+        {
+          "name": "list",
+          "type": "list",
+          "optional": false,
+          "description": "List after pop"
+        },
+        {
+          "name": "popped",
+          "type": "any",
+          "optional": false,
+          "description": "Popped value"
+        }
+      ]
+    },
+    "AssertStage": {
+      "stage_name": "AssertStage",
+      "skipable": false,
+      "allowed_events": [],
+      "allowed_inputs": [],
+      "category": "builtin.logic",
+      "icon": "✓",
+      "icon_mono": false,
+      "color": null,
+      "description": "Validate CEL condition against stage arguments, raise on failure",
+      "arguments": [
+        {
+          "name": "condition",
+          "type": "string",
+          "optional": false,
+          "description": "CEL condition; other arguments of the stage are visible as vars.*"
+        },
+        {
+          "name": "message",
+          "type": "string",
+          "optional": true,
+          "description": "Error message when condition fails",
+          "default": "assertion failed"
+        },
+        {
+          "name": "*",
+          "type": "any",
+          "optional": false,
+          "description": "Any other argument is visible to the condition as vars.<name>"
+        }
+      ],
+      "outputs": []
+    },
+    "FailStage": {
+      "stage_name": "FailStage",
+      "skipable": false,
+      "allowed_events": [],
+      "allowed_inputs": [],
+      "category": "builtin.logic",
+      "icon": "✕",
+      "icon_mono": false,
+      "color": null,
+      "description": "Always raise a runtime error with provided message",
+      "arguments": [
+        {
+          "name": "message",
+          "type": "string",
+          "optional": true,
+          "description": "Message for raised error",
+          "default": "fail"
+        }
+      ],
+      "outputs": []
+    },
+    "LogStage": {
+      "stage_name": "LogStage",
+      "skipable": false,
+      "allowed_events": [],
+      "allowed_inputs": [],
+      "category": "builtin.logic",
+      "icon": "≡",
+      "icon_mono": false,
+      "color": null,
+      "description": "Emit log event with message and the stage's own arguments",
+      "arguments": [
+        {
+          "name": "message",
+          "type": "string",
+          "optional": true,
+          "description": "Log message",
+          "default": ""
+        },
+        {
+          "name": "*",
+          "type": "any",
+          "optional": false,
+          "description": "Anything else passed in arguments is logged as-is"
+        }
+      ],
+      "outputs": []
+    },
+    "SleepStage": {
+      "stage_name": "SleepStage",
+      "skipable": false,
+      "allowed_events": [],
+      "allowed_inputs": [],
+      "category": "builtin.logic",
+      "icon": "⏱",
+      "icon_mono": false,
+      "color": null,
+      "description": "Async sleep for the given number of seconds",
+      "arguments": [
+        {
+          "name": "seconds",
+          "type": "number",
+          "optional": true,
+          "description": "Duration to sleep in seconds",
+          "default": 0
+        }
+      ],
+      "outputs": []
+    },
+    "ConcatStage": {
+      "stage_name": "ConcatStage",
+      "skipable": false,
+      "allowed_events": [],
+      "allowed_inputs": [],
+      "category": "builtin.strings",
+      "icon": "⧺",
+      "icon_mono": false,
+      "color": null,
+      "description": "Concatenate stringified parts with separator",
+      "arguments": [
+        {
+          "name": "parts",
+          "type": "list",
+          "optional": false,
+          "description": "Values to concatenate (non-strings are stringified)"
+        },
+        {
+          "name": "separator",
+          "type": "string",
+          "optional": true,
+          "description": "Separator between parts",
+          "default": ""
+        }
+      ],
+      "outputs": [
+        {
+          "name": "value",
+          "type": "string",
+          "optional": false,
+          "description": "Concatenated string"
+        }
+      ]
+    },
+    "TemplateStage": {
+      "stage_name": "TemplateStage",
+      "skipable": false,
+      "allowed_events": [],
+      "allowed_inputs": [],
+      "category": "builtin.strings",
+      "icon": "{}",
+      "icon_mono": false,
+      "color": null,
+      "description": "Format template string with the stage's own arguments",
+      "arguments": [
+        {
+          "name": "template",
+          "type": "string",
+          "optional": false,
+          "description": "Template string; a placeholder is a bare argument name ({name})"
+        },
+        {
+          "name": "*",
+          "type": "any",
+          "optional": false,
+          "description": "Any other argument becomes a template placeholder value"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "value",
+          "type": "string",
+          "optional": false,
+          "description": "Rendered string"
+        }
+      ]
+    },
+    "SetValueStage": {
+      "stage_name": "SetValueStage",
+      "skipable": false,
+      "allowed_events": [],
+      "allowed_inputs": [],
+      "category": "builtin.vars",
+      "icon": "=",
+      "icon_mono": false,
+      "color": null,
+      "description": "Set value from arguments to the target path",
+      "arguments": [
+        {
+          "name": "value",
+          "type": "any",
+          "optional": false,
+          "description": "Value to set (literal via const, or a variable reference)"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "value",
+          "type": "any",
+          "optional": false,
+          "description": "Value that was written"
+        }
+      ]
+    },
+    "CopyValueStage": {
+      "stage_name": "CopyValueStage",
+      "skipable": false,
+      "allowed_events": [],
+      "allowed_inputs": [],
+      "category": "builtin.vars",
+      "icon": "⧉",
+      "icon_mono": false,
+      "color": null,
+      "description": "Copy value to output path, falling back to default when absent",
+      "arguments": [
+        {
+          "name": "value",
+          "type": "any",
+          "optional": false,
+          "description": "Value to copy"
+        },
+        {
+          "name": "default",
+          "type": "any",
+          "optional": true,
+          "description": "Used when 'value' is missing or null"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "value",
+          "type": "any",
+          "optional": false,
+          "description": "Copied value"
+        }
+      ]
+    },
+    "IncrementStage": {
+      "stage_name": "IncrementStage",
+      "skipable": false,
+      "allowed_events": [],
+      "allowed_inputs": [],
+      "category": "builtin.vars",
+      "icon": "＋",
+      "icon_mono": false,
+      "color": null,
+      "description": "Increment numeric value by delta",
+      "arguments": [
+        {
+          "name": "current",
+          "type": "number",
+          "optional": false,
+          "description": "Current numeric value"
+        },
+        {
+          "name": "delta",
+          "type": "number",
+          "optional": true,
+          "description": "Increment step",
+          "default": 1
+        }
+      ],
+      "outputs": [
+        {
+          "name": "value",
+          "type": "number",
+          "optional": false,
+          "description": "Result after increment"
+        }
+      ]
+    },
+    "MergeDictStage": {
+      "stage_name": "MergeDictStage",
+      "skipable": false,
+      "allowed_events": [],
+      "allowed_inputs": [],
+      "category": "builtin.vars",
+      "icon": "⋈",
+      "icon_mono": false,
+      "color": null,
+      "description": "Shallow merge src dict into dst",
+      "arguments": [
+        {
+          "name": "src",
+          "type": "object",
+          "optional": false,
+          "description": "Dict with overrides"
+        },
+        {
+          "name": "dst",
+          "type": "object",
+          "optional": true,
+          "description": "Base dict to merge into (empty by default)",
+          "default": {}
+        }
+      ],
+      "outputs": [
+        {
+          "name": "merged",
+          "type": "object",
+          "optional": false,
+          "description": "Merged dict result"
+        }
+      ]
+    },
+    "LlmMessageStage": {
+      "stage_name": "LlmMessageStage",
+      "skipable": false,
+      "allowed_events": [
+        {
+          "type": "llm_delta",
+          "description": "A chunk of the model answer, as soon as it arrived",
+          "payload_schema": {
+            "stream": "bool",
+            "text": "str",
+            "index": "int",
+            "label": "str"
+          }
+        },
+        {
+          "type": "llm_completed",
+          "description": "The answer is finished: length and token usage",
+          "payload_schema": {
+            "chars": "int",
+            "input_tokens": "int",
+            "output_tokens": "int"
+          }
+        }
+      ],
+      "allowed_inputs": [],
+      "category": "llm",
+      "icon": "/icons/sparkles.svg",
+      "icon_mono": true,
+      "color": "#c084fc",
+      "description": "A request to an OpenAI model: a prompt in, the answer text out",
+      "arguments": [
+        {
+          "name": "prompt",
+          "type": "string",
+          "optional": false,
+          "description": "The user message"
+        },
+        {
+          "name": "system",
+          "type": "string",
+          "optional": true,
+          "description": "System prompt: the role and the rules of the answer"
+        },
+        {
+          "name": "model",
+          "type": "string",
+          "optional": true,
+          "description": "Model identifier (each gateway has its own)",
+          "default": "gpt-4o"
+        },
+        {
+          "name": "effort",
+          "type": "string",
+          "optional": true,
+          "description": "reasoning_effort for reasoning models: minimal | low | medium | high"
+        },
+        {
+          "name": "max_tokens",
+          "type": "int",
+          "optional": true,
+          "description": "Limit on the answer length",
+          "default": 4096
+        },
+        {
+          "name": "temperature",
+          "type": "float",
+          "optional": true,
+          "description": "Spread of the answer; empty — the model default"
+        },
+        {
+          "name": "api_key",
+          "type": "string",
+          "optional": true,
+          "description": "API key; empty — taken from the server environment"
+        },
+        {
+          "name": "base_url",
+          "type": "string",
+          "optional": true,
+          "description": "A custom API address (proxy, compatible gateway)"
+        },
+        {
+          "name": "stream",
+          "type": "bool",
+          "optional": true,
+          "description": "Write the answer as a stream, a chunk per event",
+          "default": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "text",
+          "type": "string",
+          "optional": false,
+          "description": "The model answer"
+        },
+        {
+          "name": "input_tokens",
+          "type": "int",
+          "optional": false,
+          "description": "Input tokens"
+        },
+        {
+          "name": "output_tokens",
+          "type": "int",
+          "optional": false,
+          "description": "Output tokens"
+        }
+      ]
+    },
+    "LlmJsonStage": {
+      "stage_name": "LlmJsonStage",
+      "skipable": false,
+      "allowed_events": [
+        {
+          "type": "llm_delta",
+          "description": "A chunk of the model answer, as soon as it arrived",
+          "payload_schema": {
+            "stream": "bool",
+            "text": "str",
+            "index": "int",
+            "label": "str"
+          }
+        },
+        {
+          "type": "llm_completed",
+          "description": "The answer is finished: length and token usage",
+          "payload_schema": {
+            "chars": "int",
+            "input_tokens": "int",
+            "output_tokens": "int"
+          }
+        }
+      ],
+      "allowed_inputs": [],
+      "category": "llm",
+      "icon": "/icons/sparkles.svg",
+      "icon_mono": true,
+      "color": "#a78bfa",
+      "description": "An answer that follows a JSON schema: an object, not text",
+      "arguments": [
+        {
+          "name": "prompt",
+          "type": "string",
+          "optional": false,
+          "description": "What to extract or decide"
+        },
+        {
+          "name": "schema",
+          "type": "dict",
+          "optional": false,
+          "description": "JSON Schema of the answer (an object with properties)"
+        },
+        {
+          "name": "system",
+          "type": "string",
+          "optional": true,
+          "description": "System prompt"
+        },
+        {
+          "name": "strict",
+          "type": "bool",
+          "optional": true,
+          "description": "Strict schema: the answer is guaranteed to match it",
+          "default": true
+        },
+        {
+          "name": "model",
+          "type": "string",
+          "optional": true,
+          "description": "Model identifier",
+          "default": "gpt-4o"
+        },
+        {
+          "name": "effort",
+          "type": "string",
+          "optional": true,
+          "description": "reasoning_effort for reasoning models"
+        },
+        {
+          "name": "max_tokens",
+          "type": "int",
+          "optional": true,
+          "description": "Limit on the answer length",
+          "default": 4096
+        },
+        {
+          "name": "api_key",
+          "type": "string",
+          "optional": true,
+          "description": "API key; empty — taken from the server environment"
+        },
+        {
+          "name": "base_url",
+          "type": "string",
+          "optional": true,
+          "description": "A custom API address"
+        },
+        {
+          "name": "stream",
+          "type": "bool",
+          "optional": true,
+          "description": "Write the answer as a stream, a chunk per event",
+          "default": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "data",
+          "type": "dict",
+          "optional": false,
+          "description": "The parsed answer object"
+        },
+        {
+          "name": "input_tokens",
+          "type": "int",
+          "optional": false,
+          "description": "Input tokens"
+        },
+        {
+          "name": "output_tokens",
+          "type": "int",
+          "optional": false,
+          "description": "Output tokens"
+        }
+      ]
+    },
+    "LlmClassifyStage": {
+      "stage_name": "LlmClassifyStage",
+      "skipable": false,
+      "allowed_events": [
+        {
+          "type": "llm_delta",
+          "description": "A chunk of the model answer, as soon as it arrived",
+          "payload_schema": {
+            "stream": "bool",
+            "text": "str",
+            "index": "int",
+            "label": "str"
+          }
+        },
+        {
+          "type": "llm_completed",
+          "description": "The answer is finished: length and token usage",
+          "payload_schema": {
+            "chars": "int",
+            "input_tokens": "int",
+            "output_tokens": "int"
+          }
+        }
+      ],
+      "allowed_inputs": [],
+      "category": "llm",
+      "icon": "/icons/sparkles.svg",
+      "icon_mono": true,
+      "color": "#8b5cf6",
+      "description": "Assign a text to one of the labels — an input for switch",
+      "arguments": [
+        {
+          "name": "text",
+          "type": "string",
+          "optional": false,
+          "description": "What is being classified"
+        },
+        {
+          "name": "labels",
+          "type": "list",
+          "optional": false,
+          "description": "Allowed labels (the answer will be one of them)"
+        },
+        {
+          "name": "criteria",
+          "type": "string",
+          "optional": true,
+          "description": "What to go by when choosing"
+        },
+        {
+          "name": "model",
+          "type": "string",
+          "optional": true,
+          "description": "Model identifier",
+          "default": "gpt-4o"
+        },
+        {
+          "name": "effort",
+          "type": "string",
+          "optional": true,
+          "description": "reasoning_effort for reasoning models"
+        },
+        {
+          "name": "api_key",
+          "type": "string",
+          "optional": true,
+          "description": "API key; empty — taken from the server environment"
+        },
+        {
+          "name": "base_url",
+          "type": "string",
+          "optional": true,
+          "description": "A custom API address"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "label",
+          "type": "string",
+          "optional": false,
+          "description": "The chosen label — exactly one of labels"
+        },
+        {
+          "name": "reason",
+          "type": "string",
+          "optional": false,
+          "description": "A short justification of the choice"
+        }
+      ]
+    },
+    "HttpGetStage": {
+      "stage_name": "HttpGetStage",
+      "skipable": false,
+      "allowed_events": [],
+      "allowed_inputs": [],
+      "category": "net",
+      "icon": "/icons/globe.svg",
+      "icon_mono": true,
+      "color": null,
+      "description": "A real GET request: status, body and parsed JSON",
+      "arguments": [
+        {
+          "name": "url",
+          "type": "string",
+          "optional": false,
+          "description": "Request address"
+        },
+        {
+          "name": "headers",
+          "type": "dict",
+          "optional": true,
+          "description": "Additional headers"
+        },
+        {
+          "name": "timeout",
+          "type": "float",
+          "optional": true,
+          "description": "How long to wait for the answer, seconds",
+          "default": 15
+        },
+        {
+          "name": "max_bytes",
+          "type": "int",
+          "optional": true,
+          "description": "How much of the body to read: a whole answer may not fit the frame",
+          "default": 200000
+        }
+      ],
+      "outputs": [
+        {
+          "name": "status",
+          "type": "int",
+          "optional": false,
+          "description": "HTTP status code"
+        },
+        {
+          "name": "body",
+          "type": "string",
+          "optional": false,
+          "description": "Response body (truncated to max_bytes)"
+        },
+        {
+          "name": "json",
+          "type": "any",
+          "optional": false,
+          "description": "Parsed JSON, or null if the body is not JSON"
+        }
+      ]
+    },
+    "HttpRequestStage": {
+      "stage_name": "HttpRequestStage",
+      "skipable": false,
+      "allowed_events": [],
+      "allowed_inputs": [],
+      "category": "demo.io",
+      "icon": "/icons/globe.svg",
+      "icon_mono": true,
+      "color": null,
+      "description": "Demo stage: the icon is a link to an SVG file",
+      "arguments": [
+        {
+          "name": "url",
+          "type": "string",
+          "optional": false,
+          "description": "Request address"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "body",
+          "type": "any",
+          "optional": false,
+          "description": "Response body"
+        }
+      ]
+    },
+    "QueryDbStage": {
+      "stage_name": "QueryDbStage",
+      "skipable": false,
+      "allowed_events": [],
+      "allowed_inputs": [],
+      "category": "demo.io",
+      "icon": "/icons/database.svg",
+      "icon_mono": true,
+      "color": null,
+      "description": "Demo stage: an SVG icon from a local folder",
+      "arguments": [
+        {
+          "name": "query",
+          "type": "string",
+          "optional": false,
+          "description": "SQL query"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "rows",
+          "type": "list",
+          "optional": false,
+          "description": "Result rows"
+        }
+      ]
+    },
+    "LlmCompleteStage": {
+      "stage_name": "LlmCompleteStage",
+      "skipable": false,
+      "allowed_events": [],
+      "allowed_inputs": [],
+      "category": "demo.llm",
+      "icon": "/icons/sparkles.svg",
+      "icon_mono": true,
+      "color": "#c084fc",
+      "description": "Demo stage: own icon and an explicit accent color",
+      "arguments": [
+        {
+          "name": "prompt",
+          "type": "string",
+          "optional": false,
+          "description": "Prompt for the model"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "completion",
+          "type": "string",
+          "optional": false,
+          "description": "Model answer"
+        }
+      ]
+    }
+  }
+}
