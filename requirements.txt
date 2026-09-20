@@ -3,6 +3,11 @@
 # is not installed.
 stageflow-framework>=0.9
 
+# The transport of serve.py: the endpoints as typed handlers, the bodies of
+# the run API as models, /docs for free.
+fastapi>=0.110
+uvicorn>=0.27
+
 # Only the two stages in llm_stages.py need it. Without it the rest of the bot
 # still works: the full pipeline falls back to keyword rules.
 openai

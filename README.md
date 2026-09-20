@@ -17,8 +17,18 @@ ticket (topic, urgency, mood) and writes the reply.
 
 ```bash
 pip install -r requirements.txt
-python serve.py                  # http://127.0.0.1:8765
+python main.py                   # http://127.0.0.1:8765
 ```
+
+The backend is a FastAPI application, so the usual way works too — and it is
+the one to use with `--reload` while editing a stage:
+
+```bash
+uvicorn main:app --port 8765 --reload
+```
+
+Either way `http://127.0.0.1:8765/docs` describes every endpoint below and
+lets you start a run straight from the page, without the editor.
 
 Then open the editor and type `http://127.0.0.1:8765` on its connection
 screen. "File" → "Import JSON…" opens one of the pipelines from `pipelines/`;
@@ -27,11 +37,11 @@ screen. "File" → "Import JSON…" opens one of the pipelines from `pipelines/`
 The key for the model is given to the server, not to the pipeline:
 
 ```bash
-SF_SECRET_OPENAI_API_KEY=sk-… python serve.py
+SF_SECRET_OPENAI_API_KEY=sk-… python main.py
 ```
 
 The editor then sees only the NAME `OPENAI_API_KEY`, and the pipelines read it
-as an ordinary variable. (`OPENAI_API_KEY=sk-… python serve.py` works too — the
+as an ordinary variable. (`OPENAI_API_KEY=sk-… python main.py` works too — the
 SDK picks it up itself.)
 
 **Without a key** the fourth pipeline still runs end to end: the model failing
@@ -41,7 +51,7 @@ it is the clearest thing the debugger shows.
 
 | variable | what it does |
 |---|---|
-| `SF_PORT`, `SF_HOST` | where to listen (default `127.0.0.1:8765`) |
+| `SF_PORT`, `SF_HOST` | where to listen (default `127.0.0.1:8765`); `python main.py 9000` overrides the port |
 | `SF_SECRETS`, `SF_SECRET_<NAME>` | the secrets available to a run; the editor only ever sees their names |
 | `SF_ALLOW_ORIGIN` | the origin allowed by CORS (default `*`) |
 | `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL` | read by the two model stages |
@@ -49,6 +59,21 @@ it is the clearest thing the debugger shows.
 `OPENAI_BASE_URL` points the stages at any OpenAI-compatible gateway, proxy or
 local stub — that is also how to try the first three pipelines without a real
 key.
+
+## The files
+
+```
+main.py                 the FastAPI app: middleware, error handlers, statics
+app/api.py              what the editor asks for — every endpoint
+app/schemas.py          the bodies of the run API
+app/runs.py             a run: a real Session in its own thread, with the debugger
+app/events.py           the event log of a run and the SSE stream out of it
+app/secrets.py          which secrets the server has, and hiding them again
+app/config.py           where the files are, what the environment asks for
+app/stages/support.py   the stages that read the prepared data
+app/stages/llm.py       the two that call a model
+check_pipelines.py      what CI runs: the pipelines are valid, the full one runs
+```
 
 ## The four pipelines
 
@@ -68,7 +93,7 @@ subpipeline is a graph of its own behind one node.
 
 ## The stages
 
-`support_stages.py` — the prepared part, no network:
+`app/stages/support.py` — the prepared part, no network:
 
 | stage | what it does |
 |---|---|
@@ -80,7 +105,7 @@ subpipeline is a graph of its own behind one node.
 | `SendReplyStage` | sends the reply — and types it out word by word, so the editor shows it arriving |
 | `EscalateStage` | creates a task for a human and says why |
 
-`llm_stages.py` — the two that call a model:
+`app/stages/llm.py` — the two that call a model:
 
 | stage | what it does |
 |---|---|
@@ -118,9 +143,16 @@ POST   /api/run/<id>/control   {action: "step"|"resume"|"pause"|"stop"|"delay", 
 POST   /api/run/<id>/vars      {set: {...}, drop: [...]}
 ```
 
-Plus the static files of this folder: the icons the stages refer to (`icons/`),
-the pipelines and the fixtures. Every answer carries CORS headers — the editor
-is served from another origin.
+Plus `GET /docs` (the same list, interactive — `/` redirects there) and three
+folders of static files: the icons the stages refer to (`icons/`), the
+pipelines and the fixtures. Only those three — the source of the backend is not
+the editor's business. Every answer carries CORS headers, the editor being
+served from another origin, and `Cache-Control: no-store`, so an edited
+pipeline is never served from the browser cache.
+
+The bodies are declared as models (`app/schemas.py`), and a body they reject
+comes back the same way a broken pipeline does: `400` with `{"error": "…"}`,
+which is the field the editor shows in its status bar.
 
 A pipeline is executed by the real core, in a real `Session` with the core
 debugger, so the editor's step debugger shows what actually happens rather than
@@ -130,8 +162,7 @@ a second implementation of the semantics in JavaScript.
 a running backend. To refresh it after changing a stage:
 
 ```bash
-python -c "import sys; sys.path.insert(0, '.'); import serve; \
-import json; from stageflow import get_stages; \
+python -c "import app.stages, json; from stageflow import get_stages; \
 print(json.dumps({'stages': {n: c.get_specs() for n, c in get_stages().items()}}, ensure_ascii=False, indent=2))" > stages.json
 ```
 
@@ -147,10 +178,11 @@ key, both roads: an answered ticket and an escalated one.
 ## Writing your own backend
 
 There is nothing special about this one — the editor needs the endpoints above,
-the same event stream and CORS headers. The stage specs are whatever
-`get_specs()` of the core returns; an icon given as an absolute path
-(`/icons/ticket.svg`) is resolved by the editor against the backend URL, so the
-icons are served from here.
+the same event stream and CORS headers; FastAPI here is a convenience, not a
+requirement of the protocol, and `app/api.py` is the whole of it. The stage
+specs are whatever `get_specs()` of the core returns; an icon given as an
+absolute path (`/icons/ticket.svg`) is resolved by the editor against the
+backend URL, so the icons are served from here.
 
 ## License
 

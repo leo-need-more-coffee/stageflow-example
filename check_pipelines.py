@@ -20,7 +20,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
-import serve  # noqa: E402,F401 - registers the stages
+import app.stages  # noqa: E402,F401 - registers the stages
 
 from stageflow import Context, Pipeline, Session  # noqa: E402
 

@@ -14,16 +14,15 @@ to be guessed from its name. The decisions live in the graph — `condition`,
 `switch`, `try` — where they can be seen.
 
 The one thing that does go to a live service is classification, and that lives
-apart, in ``llm_stages.py``.
+apart, in ``llm.py``.
 """
 from __future__ import annotations
 
 import json
-from pathlib import Path
 
 from stageflow import BaseStage, EventSpec, register_stage
 
-DATA = Path(__file__).resolve().parent / "data"
+from app.config import DATA_DIR
 
 
 class TicketNotFound(LookupError):
@@ -38,7 +37,7 @@ def _load(name: str) -> dict:
     """The fixtures are read on every call on purpose: editing a JSON file and
     running the pipeline again is the fastest way to try another situation, and
     a cache would mean restarting the server for it."""
-    with open(DATA / name, encoding="utf-8") as fh:
+    with open(DATA_DIR / name, encoding="utf-8") as fh:
         return json.load(fh)
 
 

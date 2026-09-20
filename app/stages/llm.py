@@ -1,6 +1,6 @@
 """The two stages of the bot that actually call a language model.
 
-Everything else in this example is prepared data (see ``support_stages.py``).
+Everything else in this example is prepared data (see ``support.py``).
 These two are the live part: they read the ticket the way a person would —
 deciding what it is about and how angry it sounds — and write the reply.
 
@@ -22,6 +22,7 @@ drawn.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 
@@ -54,13 +55,23 @@ class LlmBadAnswer(RuntimeError):
     """The model answered, but not with what was asked for."""
 
 
-_clients: dict[tuple[str | None, str | None], openai.AsyncOpenAI] = {}
+_clients: dict[tuple[object, str | None, str | None], openai.AsyncOpenAI] = {}
 
 
 def _client(api_key: str | None, base_url: str | None) -> openai.AsyncOpenAI:
-    """One client per (key, address). A pipeline of a dozen nodes would
-    otherwise open a dozen connection pools."""
-    key = (api_key or None, base_url or None)
+    """One client per (key, address) within one run: a pipeline of a dozen
+    nodes would otherwise open a dozen connection pools.
+
+    The running event loop is part of the key, because every run gets a thread
+    with a loop of its own (see ``app/runs.py``) and the SDK binds its
+    connection pool to the loop it was created in. Shared across runs, the
+    second one would answer `RuntimeError: Event loop is closed` in place of
+    whatever really went wrong — a real error hidden behind a plumbing one.
+    """
+    loop = asyncio.get_running_loop()
+    for stale in [k for k in _clients if k[0] is not loop and k[0].is_closed()]:
+        _clients.pop(stale, None)  # its run is over, and so is its loop
+    key = (loop, api_key or None, base_url or None)
     if key not in _clients:
         # retries are the node's business — on the graph they are visible
         kwargs: dict = {"max_retries": 0}
