@@ -5,8 +5,11 @@
 stageflow-framework>=0.10
 
 # The transport of main.py: the endpoints as typed handlers, the bodies of
-# the run API as models, /docs for free.
+# the run API as models, /docs for free. Starlette is named explicitly because
+# of one flag: allow_private_network, without which Chrome refuses to let the
+# hosted editor (https) reach this backend on 127.0.0.1.
 fastapi>=0.110
+starlette>=1.7
 uvicorn>=0.27
 
 # Only the two stages in app/stages/llm.py need it. Without it the rest of the

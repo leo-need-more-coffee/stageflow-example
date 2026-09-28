@@ -48,6 +48,11 @@ app.add_middleware(
     allow_origins=[config.ALLOW_ORIGIN],
     allow_methods=["GET", "POST", "OPTIONS"],
     allow_headers=["Content-Type"],
+    # the hosted editor is served over https and this backend answers on
+    # 127.0.0.1, which Chrome calls a private-network request: it asks in a
+    # preflight first and, without this, refuses with "Disallowed CORS
+    # private-network" — which reaches the page as a plain network error
+    allow_private_network=True,
     max_age=86400,
 )
 app.add_exception_handler(HTTPException, http_error)
