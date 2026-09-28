@@ -104,6 +104,7 @@ stub, which is how to try the first three pipelines without a real key.
 ## What it answers
 
 ```
+GET    /api/meta               {api, stageflow, node_types, stages} — what this backend can run
 GET    /api/stages             the specs of every registered stage
 GET    /api/secrets            the NAMES of the secrets in the environment
 POST   /api/run                {pipeline, vars, mode: "run"|"step", delay} -> {id, state}

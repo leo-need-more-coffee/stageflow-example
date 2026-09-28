@@ -1,8 +1,9 @@
 """What the editor asks the backend for.
 
-Before a run: the stages it may put on the canvas (``/stages``) and the names
-of the keys a run can be given (``/secrets``). During one: a run it starts and
-then drives a node at a time (``/run…``), reading the event stream as it goes.
+Before a run: what this backend can do at all (``/meta``), the stages it may
+put on the canvas (``/stages``) and the names of the keys a run can be given
+(``/secrets``). During one: a run it starts and then drives a node at a time
+(``/run…``), reading the event stream as it goes.
 """
 from __future__ import annotations
 
@@ -32,6 +33,27 @@ def current_run(run_id: str) -> Run:
 
 CurrentRun = Annotated[Run, Depends(current_run)]
 FromEvent = Annotated[int, Query(alias="from", ge=0, description="read on from the Nth event")]
+
+
+#: The version of the HTTP contract of this backend — the endpoints and the
+#: shapes on this page, not the version of the core behind it. It goes up only
+#: when a client that speaks the old one would break; adding an endpoint or a
+#: field does not move it.
+API_VERSION = 1
+
+
+@router.get("/meta", summary="What this backend is and what its core can do")
+async def meta() -> dict:
+    """What a client needs before it draws anything.
+
+    An editor is built against one version of the core and then pointed here.
+    Rather than have it keep a table of which release grew which node type, the
+    core is asked directly — ``node_types`` is its registry, so a name absent
+    from it is exactly a name a run would reject.
+    """
+    from stageflow import capabilities
+
+    return {"api": API_VERSION, **capabilities()}
 
 
 @router.get("/stages", summary="Specs of every registered stage")

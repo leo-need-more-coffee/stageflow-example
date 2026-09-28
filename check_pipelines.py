@@ -8,7 +8,9 @@ Two things, and both of them are what breaks in a demo nobody runs:
     the stages declared are there;
   * the full one really runs without an API key, taking the `except` road to
     the keyword rules. That is the promise the README makes, and it is the
-    easiest one to break by editing a stage.
+    easiest one to break by editing a stage;
+  * ``/api/meta`` answers, and answers about the core that is actually
+    installed — that is what an editor decides by.
 """
 from __future__ import annotations
 
@@ -55,9 +57,39 @@ async def check_runs_without_key() -> list[str]:
     return problems
 
 
+async def check_meta() -> list[str]:
+    """The answer an editor plans by, checked against the core in this process.
+
+    The endpoint is cheap to break in a way nothing else notices: it would
+    still return 200 with a stale hand-written list, and the editor would go
+    on offering a node this backend cannot run.
+    """
+    from stageflow import capabilities
+    from stageflow.core.nodes import get_node_types
+
+    from app.api import API_VERSION, meta
+
+    problems = []
+    answer = await meta()
+    expected = {"api": API_VERSION, **capabilities()}
+    if answer != expected:
+        problems.append(f"/api/meta answered {answer}, expected {expected}")
+        print(f"  FAIL  /api/meta {answer}")
+        return problems
+    if answer["node_types"] != sorted(get_node_types()):
+        problems.append("/api/meta node_types is not the registry")
+        print("  FAIL  /api/meta node_types is not the registry")
+        return problems
+    print(f"  ok    /api/meta  api={answer['api']} core={answer['stageflow']} "
+          f"nodes={len(answer['node_types'])} stages={answer['stages']}")
+    return problems
+
+
 def main() -> int:
+    print("the backend describes itself:")
+    problems = asyncio.run(check_meta())
     print("pipelines are valid:")
-    problems = check_valid()
+    problems += check_valid()
     print("the full pipeline runs without an API key:")
     problems += asyncio.run(check_runs_without_key())
 
