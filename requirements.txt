@@ -1,8 +1,8 @@
 # The StageFlow core — it is the core that executes the pipelines. A sibling
 # ../stageflow checkout works too: app/__init__.py falls back to it when the
-# package is not installed. 0.10 is the floor because /api/meta answers out of
+# package is not installed. 0.11 is the floor because /api/meta answers out of
 # stageflow.capabilities(), which older cores do not have.
-stageflow-framework>=0.10
+stageflow-framework>=0.11
 
 # The transport of main.py: the endpoints as typed handlers, the bodies of
 # the run API as models, /docs for free. Starlette is named explicitly because
