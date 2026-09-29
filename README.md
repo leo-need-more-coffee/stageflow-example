@@ -96,18 +96,53 @@ everywhere on the way back.
 | `SF_HOST`, `SF_PORT` | where to listen (default `127.0.0.1:8765`); `python main.py 9000` also works |
 | `SF_SECRETS`, `SF_SECRET_<NAME>` | the secrets a run may use; the editor only ever sees their names |
 | `SF_ALLOW_ORIGIN` | the origin allowed by CORS (default `*`) |
+| `SF_TOKENS` | `token:plan,token:plan` — configure one and every endpoint starts demanding a credential |
+| `SF_AUTH_HEADER` | which header it arrives in (default `Authorization`) |
 | `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL` | read by the two model stages |
 
 `OPENAI_BASE_URL` points them at any OpenAI-compatible gateway, proxy or local
 stub, which is how to try the first three pipelines without a real key.
 
+## Plans, and where a plan is checked
+
+Three plans (`app/plans.py`), each of them a `Policy`: which stages and node
+types may be composed, and how much a run may spend. `basic` has no model
+stages and no `map`; `pro` has everything with ceilings; `full` is the
+unrestricted example.
+
+Who is on which is decided by a token (`app/auth.py`):
+
+```bash
+SF_TOKENS="demo-basic:basic,demo-pro:pro" python main.py
+```
+
+The editor then asks for the header on its connection screen. With no tokens
+configured there is no authentication at all and everyone gets `full` — the
+example starts and works, which is the point of an example.
+
+The part worth looking at is the asymmetry between the two halves:
+
+| | Who may ask | What it is for |
+|---|---|---|
+| `GET /api/meta?plan=pro` | anyone | *show* me what that plan allows — an unverified question, so that an editor can grey out a palette without anybody logging in, and so that "what would I lose on the cheaper tier" is answerable |
+| `POST /api/run` | the credential decides | the plan is resolved from the header and nowhere else. `plan` in the body is what the client *drew against*; if it disagrees the run is refused with a message that names both, rather than narrowed in silence |
+
+Wire `?plan=` into the run — one line, and an obvious-looking one — and every
+ceiling in this repository becomes a query parameter. `check_pipelines.py`
+checks that nobody did.
+
+None of this is in the framework. StageFlow takes a `Policy`; tokens,
+headers, tenants and sessions are the platform's, because every platform
+already has its own and would have to fight the framework's.
+
 ## What it answers
 
 ```
-GET    /api/meta               {api, stageflow, node_types, stages} — what this backend can run
-GET    /api/stages             the specs of every registered stage
+GET    /api/meta               {api, plan, plan_source, plans, stageflow, node_types, stages, limits}
+                               ?plan=<name> — answer about that plan instead of the caller's
+GET    /api/stages             the specs of the stages the plan allows; ?plan= as above
 GET    /api/secrets            the NAMES of the secrets in the environment
-POST   /api/run                {pipeline, vars, mode: "run"|"step", delay} -> {id, state}
+POST   /api/run                {pipeline, vars, mode: "run"|"step", delay, plan} -> {id, state}
 GET    /api/run/<id>           the state of the run
 GET    /api/run/<id>/events    the event stream (SSE), ?from=N — read on from the Nth
 POST   /api/run/<id>/control   {action: "step"|"resume"|"pause"|"stop"|"delay", count, delay}
@@ -125,6 +160,8 @@ is documented in the editor's
 ```
 main.py                 the FastAPI app: middleware, error handlers, static files
 app/api.py              every endpoint the editor calls
+app/auth.py             who is calling, and therefore which plan a run is on
+app/plans.py            the plans, each one a Policy
 app/schemas.py          the bodies of the run API
 app/runs.py             a run: a real Session in its own thread, with the debugger
 app/events.py           the event log and the SSE stream out of it

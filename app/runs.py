@@ -19,8 +19,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
-from app.plans import current_policy
-from stageflow import Context, Pipeline, Session, StepDebugger
+from stageflow import Context, Pipeline, Session, Policy, StepDebugger
 
 from app.events import EventBus, jsonable, telemetry_to_dict
 from app.secrets import Masker, env_secret_names, env_secret_value
@@ -88,8 +87,10 @@ class RunManager:
 
     # -------------------------------------------------------------- create
 
-    def start(self, payload: dict) -> Run:
-        policy = current_policy()
+    def start(self, payload: dict, policy: Policy) -> Run:
+        """@param policy what the CALLER may do — resolved from the request in
+        `app/api.py`, never from the payload. A pipeline that asks for more
+        than the policy allows is refused here, before a thread is started."""
         pipeline = Pipeline.from_dict(payload.get("pipeline") or {})
         # description errors — and anything the plan refuses — answer right
         # away, from the request, rather than from a thread minutes later

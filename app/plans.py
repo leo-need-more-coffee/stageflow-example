@@ -1,11 +1,9 @@
-"""Two plans, so that the policy is something you can see rather than read about.
+"""The plans this backend serves, and the policy each one is.
 
 A real platform looks a tenant up, finds their subscription and builds the
-policy from it. This is an example backend with no tenants at all, so the plan
-is an environment variable — the point being what a plan *is*, not where it
-came from:
-
-    SF_PLAN=basic python main.py
+policy from it. This is an example backend, so the plans are a table and the
+tenant is whoever presents a token (``app/auth.py``) — the point being what a
+plan *is* and where it is checked, not where it was stored.
 
 The mapping lives here and not in the core on purpose. The core knows
 `Policy`; the words "plan", "basic" and "pro" are the platform's business, and
@@ -13,16 +11,11 @@ so is the price list that turns the meters in a result into an invoice.
 """
 from __future__ import annotations
 
-import os
-
 from stageflow import Limits, Policy
 
-#: Everything this backend registers, with room to work. The default: an
-#: example nobody has restricted should behave like an example.
-FULL = Policy()
-
 PLANS: dict[str, Policy] = {
-    "full": FULL,
+    # everything this backend registers, with room to work
+    "full": Policy(),
     "basic": Policy(
         # no model calls at all: the keyword rules are in, the LLM is not
         stages={"LoadTicketStage", "ClassifyByRulesStage", "SearchKbStage",
@@ -47,10 +40,24 @@ PLANS: dict[str, Policy] = {
     ),
 }
 
-#: Which plan this process serves. One process, one plan, because there is
-#: nobody to tell apart here; a real platform picks per request.
-PLAN = os.environ.get("SF_PLAN", "full")
+#: Who a caller is when this process tells nobody apart — no tokens
+#: configured (``app/auth.py``). The unrestricted one, because an example
+#: nobody has restricted should behave like an example.
+OPEN_PLAN = "full"
 
 
-def current_policy() -> Policy:
-    return PLANS.get(PLAN, FULL)
+def plan_names() -> list[str]:
+    """The plans a client may ask to be shown. Answered to anyone: a name is
+    not a permission, and a client that cannot see the list cannot offer it."""
+    return sorted(PLANS)
+
+
+def known(name: str | None) -> bool:
+    return name in PLANS
+
+
+def policy_for(name: str) -> Policy:
+    """The policy of a plan. The name must be one — every caller either got
+    it from :func:`known` or from the token table, which drops what it does
+    not recognise, so an unknown one here is a bug and says so."""
+    return PLANS[name]

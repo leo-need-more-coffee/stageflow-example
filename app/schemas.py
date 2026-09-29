@@ -21,6 +21,10 @@ class Secrets(BaseModel):
 
 
 class RunRequest(BaseModel):
+    #: The plan the client drew this graph against, if it knows. NOT a choice
+    #: of plan — the run goes on whatever the credentials resolve to — but
+    #: saying it turns "stage X is not allowed" into "you are on basic".
+    plan: str | None = None
     pipeline: dict[str, Any] = {}
     vars: dict[str, Any] = {}
     mode: Literal["run", "step"] = "run"

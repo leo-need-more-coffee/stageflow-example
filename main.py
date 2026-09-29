@@ -27,6 +27,7 @@ from starlette.middleware.cors import CORSMiddleware
 
 from app import config
 from app.api import router
+from app.auth import AUTH_HEADER
 from app.exceptions import http_error, invalid_body
 from app.middleware import NoStore
 from app.stages import LLM_IMPORT_ERROR
@@ -47,7 +48,9 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[config.ALLOW_ORIGIN],
     allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Content-Type"],
+    # the credential header too, and whichever one this deployment named:
+    # without it the browser's preflight refuses the request before it is sent
+    allow_headers=["Content-Type", AUTH_HEADER],
     # the hosted editor is served over https and this backend answers on
     # 127.0.0.1, which Chrome calls a private-network request: it asks in a
     # preflight first and, without this, refuses with "Disallowed CORS
