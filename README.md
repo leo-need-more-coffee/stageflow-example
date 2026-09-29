@@ -132,6 +132,14 @@ everywhere on the way back.
 `OPENAI_BASE_URL` points them at any OpenAI-compatible gateway, proxy or local
 stub, which is how to try the first three pipelines without a real key.
 
+## How it was built
+
+The core's documentation takes this repository apart step by step —
+[Building a backend](https://leo-need-more-coffee.github.io/stageflow/backend/):
+the stages, the seven endpoints, the policy, the meters and the credential,
+in the order they were actually written. If you are writing a backend of your
+own rather than reading this one, start there.
+
 ## Plans, and where a plan is checked
 
 Three plans (`app/plans.py`), each of them a `Policy`: which stages and node
