@@ -11,16 +11,11 @@ so is the price list that turns the meters in a result into an invoice.
 """
 from __future__ import annotations
 
-import os
-
 from stageflow import Limits, Policy
 
-#: Everything this backend registers, with room to work. The default: an
-#: example nobody has restricted should behave like an example.
-FULL = Policy()
-
 PLANS: dict[str, Policy] = {
-    "full": FULL,
+    # everything this backend registers, with room to work
+    "full": Policy(),
     "basic": Policy(
         # no model calls at all: the keyword rules are in, the LLM is not
         stages={"LoadTicketStage", "ClassifyByRulesStage", "SearchKbStage",
@@ -45,9 +40,10 @@ PLANS: dict[str, Policy] = {
     ),
 }
 
-#: Who a caller is when nobody has been told apart: no tokens configured, or a
-#: request that carries none where none are demanded.
-DEFAULT_PLAN = os.environ.get("SF_PLAN", "full")
+#: Who a caller is when this process tells nobody apart — no tokens
+#: configured (``app/auth.py``). The unrestricted one, because an example
+#: nobody has restricted should behave like an example.
+OPEN_PLAN = "full"
 
 
 def plan_names() -> list[str]:
@@ -60,11 +56,8 @@ def known(name: str | None) -> bool:
     return name in PLANS
 
 
-def policy_for(name: str | None) -> Policy:
-    """The policy of a plan; an unknown name falls back to the default one.
-
-    Falling back rather than raising, because this is also what answers for
-    ``SF_PLAN=typo``: a misspelt environment variable should start the example
-    rather than make every endpoint 500.
-    """
-    return PLANS.get(name or "", PLANS.get(DEFAULT_PLAN, FULL))
+def policy_for(name: str) -> Policy:
+    """The policy of a plan. The name must be one — every caller either got
+    it from :func:`known` or from the token table, which drops what it does
+    not recognise, so an unknown one here is a bug and says so."""
+    return PLANS[name]

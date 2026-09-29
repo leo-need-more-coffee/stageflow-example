@@ -96,7 +96,6 @@ everywhere on the way back.
 | `SF_HOST`, `SF_PORT` | where to listen (default `127.0.0.1:8765`); `python main.py 9000` also works |
 | `SF_SECRETS`, `SF_SECRET_<NAME>` | the secrets a run may use; the editor only ever sees their names |
 | `SF_ALLOW_ORIGIN` | the origin allowed by CORS (default `*`) |
-| `SF_PLAN` | the plan a caller gets when nobody is told apart (default `full`) |
 | `SF_TOKENS` | `token:plan,token:plan` — configure one and every endpoint starts demanding a credential |
 | `SF_AUTH_HEADER` | which header it arrives in (default `Authorization`) |
 | `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL` | read by the two model stages |
@@ -117,9 +116,9 @@ Who is on which is decided by a token (`app/auth.py`):
 SF_TOKENS="demo-basic:basic,demo-pro:pro" python main.py
 ```
 
-The editor then asks for the header on the connection screen. With no tokens
-configured there is no authentication at all and everyone gets `SF_PLAN` —
-the example starts and works.
+The editor then asks for the header on its connection screen. With no tokens
+configured there is no authentication at all and everyone gets `full` — the
+example starts and works, which is the point of an example.
 
 The part worth looking at is the asymmetry between the two halves:
 

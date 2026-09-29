@@ -28,31 +28,25 @@ sys.path.insert(0, str(ROOT))
 import app.stages  # noqa: E402,F401 - registers the stages
 
 from stageflow import Context, Pipeline, Session  # noqa: E402
-from stageflow.exceptions import PipelineValidationError  # noqa: E402
 
 
 def check_valid() -> list[str]:
-    """Every shipped pipeline is well formed, and allowed by the plan.
+    """Every shipped pipeline is well formed, and runs on the open plan.
 
-    A plan narrower than the default is *supposed* to refuse some of these —
-    that is what a plan is — so a refusal is only a problem on the plan this
-    repository ships with, which is also the one CI runs.
+    The open plan, because that is what a caller gets here with no
+    credentials — the state the README tells people to start in. A narrower
+    plan is *supposed* to refuse some of these; that is what a plan is, and
+    it is checked by hand in `check_plan_is_not_a_claim`.
     """
-    from app.plans import DEFAULT_PLAN as PLAN, policy_for
+    from app.plans import OPEN_PLAN, policy_for
 
-    policy = policy_for(PLAN)
+    policy = policy_for(OPEN_PLAN)
     problems = []
     for path in sorted((ROOT / "pipelines").glob("*.json")):
         data = json.loads(path.read_text(encoding="utf-8"))
         try:
             Pipeline.from_dict(data).validate(policy)
             print(f"  ok    {path.name}")
-        except PipelineValidationError as exc:
-            if PLAN == "full":
-                problems.append(f"{path.name}: {exc}")
-                print(f"  FAIL  {path.name}: {exc}")
-            else:
-                print(f"  --    {path.name}: not on plan '{PLAN}'")
         except Exception as exc:  # noqa: BLE001 - the report is the point
             problems.append(f"{path.name}: {type(exc).__name__}: {exc}")
             print(f"  FAIL  {path.name}: {exc}")
@@ -90,18 +84,18 @@ async def check_meta() -> list[str]:
     from stageflow.core.nodes import get_node_types
 
     from app.api import API_VERSION, meta, stages
-    from app.plans import DEFAULT_PLAN as PLAN, policy_for
+    from app.plans import OPEN_PLAN, policy_for
 
     problems = []
-    policy = policy_for(PLAN)
-    answer = await meta(caller=PLAN)
+    policy = policy_for(OPEN_PLAN)
+    answer = await meta(caller=OPEN_PLAN)
 
-    if answer.get("api") != API_VERSION or answer.get("plan") != PLAN:
+    if answer.get("api") != API_VERSION or answer.get("plan") != OPEN_PLAN:
         problems.append(f"/api/meta: api/plan wrong: {answer}")
     if answer.get("node_types") != capabilities(policy)["node_types"]:
         problems.append("/api/meta: node_types is not what the policy allows")
     allowed = {name for name in get_stages() if policy.allows_stage(name)}
-    served = set((await stages(caller=PLAN))["stages"])
+    served = set((await stages(caller=OPEN_PLAN))["stages"])
     if served != allowed:
         problems.append(f"/api/stages served {sorted(served - allowed)} "
                         f"the plan forbids, or dropped {sorted(allowed - served)}")
@@ -113,7 +107,7 @@ async def check_meta() -> list[str]:
         for problem in problems:
             print(f"  FAIL  {problem}")
         return problems
-    print(f"  ok    /api/meta  plan={PLAN} api={answer['api']} "
+    print(f"  ok    /api/meta  plan={OPEN_PLAN} api={answer['api']} "
           f"core={answer['stageflow']} nodes={len(answer['node_types'])} "
           f"stages={answer['stages']}")
     return problems

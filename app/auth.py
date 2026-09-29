@@ -31,7 +31,7 @@ from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request
 
-from app.plans import DEFAULT_PLAN, known
+from app.plans import OPEN_PLAN, known
 
 #: Which header the credential arrives in. A setting rather than a constant
 #: because backends disagree: `Authorization: Bearer …`, `X-Api-Key: …`, a
@@ -72,7 +72,7 @@ def credential(request: Request) -> str | None:
 def caller_plan(request: Request) -> str:
     """The plan this request is entitled to. The authoritative answer."""
     if not ENABLED:
-        return DEFAULT_PLAN
+        return OPEN_PLAN
     token = credential(request)
     if token is None:
         raise HTTPException(401, f"no credentials: send a token in the "
@@ -88,7 +88,7 @@ def caller_plan(request: Request) -> str:
 def source_of(requested: str | None) -> str:
     if requested:
         return "query"
-    return "token" if ENABLED else "default"
+    return "token" if ENABLED else "open"
 
 
 CallerPlan = Annotated[str, Depends(caller_plan)]
