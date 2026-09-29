@@ -19,6 +19,14 @@ Four error classes, not one: in a graph they become roads. `LlmAuthError` means
 what a `retry` repeats, `LlmBadAnswer` means the model answered something the
 schema did not allow. A single bare `Exception` would not let such a graph be
 drawn.
+
+These are also the two stages in this example that cost anything, so they are
+the two that take part in the budget (`docs/limits.md` of the core). Both
+halves of it, because a model call needs both: `reserve:` in the spec is what
+a plan is checked against *before* the call — a request that cannot be paid
+for should not be sent — and `charge()` after it is what the provider says it
+actually came to. The estimate and the truth are rarely the same number, and
+the one that reaches the invoice is the second.
 """
 from __future__ import annotations
 
@@ -93,13 +101,36 @@ def _resolve_key(args: dict) -> str | None:
     )
 
 
+def _tokens_used(usage, messages: list[dict], answer: str) -> int:
+    """What the call came to, in tokens.
+
+    The provider's own count when there is one: that is the number an invoice
+    would be built from, and no estimate is allowed to argue with it.
+
+    Gateways that send no `usage` — and the older ones that ignore
+    `stream_options` — leave a choice between charging nothing and charging a
+    guess. Nothing would quietly turn a ceiling on tokens into a ceiling on
+    nothing, which is the failure mode worth avoiding, so it is four
+    characters to the token: wrong by a fifth, never by an order of magnitude.
+    """
+    total = getattr(usage, "total_tokens", None)
+    if total:
+        return int(total)
+    text = "".join(str(m.get("content") or "") for m in messages) + answer
+    return max(1, len(text) // 4)
+
+
 async def _chat(stage: BaseStage, args: dict, messages: list[dict],
                 schema: dict | None = None, on_chunk=None) -> str:
-    """One call, all the error mapping, and the streaming — in one place.
+    """One call, all the error mapping, the streaming and the bill — in one place.
 
     `schema` turns the answer into a JSON object of a known shape; `on_chunk`
     receives the text as it arrives, so a stage can type it out instead of
     waiting for the whole answer.
+
+    Whatever happens, a call that went out is charged for. A call that failed
+    still keeps the reservation its stage declared — the request left, and
+    refunding it by default would be the optimistic lie.
     """
     client = _client(_resolve_key(args), (args.get("base_url") or "").strip() or None)
     request: dict = {
@@ -113,13 +144,20 @@ async def _chat(stage: BaseStage, args: dict, messages: list[dict],
         }
 
     pieces: list[str] = []
+    usage = None
     try:
         if on_chunk is None:
             answer = await client.chat.completions.create(**request)
+            usage = answer.usage
             pieces.append(answer.choices[0].message.content or "")
         else:
-            stream = await client.chat.completions.create(**request, stream=True)
+            # a stream says nothing about what it cost unless asked: the usage
+            # arrives in a final chunk that carries no choices
+            stream = await client.chat.completions.create(
+                **request, stream=True, stream_options={"include_usage": True})
             async for chunk in stream:
+                if getattr(chunk, "usage", None):
+                    usage = chunk.usage
                 if not chunk.choices:
                     continue
                 piece = getattr(chunk.choices[0].delta, "content", None)
@@ -141,6 +179,9 @@ async def _chat(stage: BaseStage, args: dict, messages: list[dict],
         raise LlmBadAnswer(f"HTTP {exc.status_code}: {exc}") from exc
 
     text = "".join(pieces).strip()
+    # charged before the empty-answer check: an answer that came back useless
+    # was paid for exactly like one that came back useful
+    stage.charge(llm_calls=1, tokens=_tokens_used(usage, messages, text))
     if not text:
         raise LlmBadAnswer("the model returned an empty answer")
     return text
@@ -154,6 +195,10 @@ class LlmTriageStage(BaseStage):
     icon_mono: true
     color: "#c084fc"
     category: "support.triage"
+    timeout: 60
+    reserve:
+      llm_calls: 1
+      tokens: "size(args.text) / 4 + 300"
     arguments:
       text:
         type: string
@@ -241,6 +286,10 @@ class LlmReplyStage(BaseStage):
     icon_mono: true
     color: "#a78bfa"
     category: "support.reply"
+    timeout: 90
+    reserve:
+      llm_calls: 1
+      tokens: "(size(args.text) + size(args.article)) / 4 + 600"
     arguments:
       text:
         type: string

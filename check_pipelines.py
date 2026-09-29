@@ -13,13 +13,18 @@ Two things, and both of them are what breaks in a demo nobody runs:
     installed — that is what an editor decides by;
   * the plan a client may *ask to be shown* and the plan a run is *executed*
     under stay two different things — the whole point of `app/auth.py`, and a
-    thing one refactor of the dependency graph would quietly undo.
+    thing one refactor of the dependency graph would quietly undo;
+  * the plans are real: the cheap one runs the pipeline it was built around,
+    refuses the one it is not meant to have, and its meters actually move. A
+    plan whose ceilings nothing counts against is decoration, and decoration
+    passes every other check in this file.
 """
 from __future__ import annotations
 
 import asyncio
 import json
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -177,6 +182,73 @@ async def check_plan_is_not_a_claim() -> list[str]:
     return problems
 
 
+async def check_plans_are_real() -> list[str]:
+    """A plan has to do something, or it is a table nobody consults.
+
+    Three things, and each of them has been quietly wrong at some point in
+    this repository: a plan that named a stage which does not exist (so it
+    allowed six and got five), a plan that could run none of the shipped
+    pipelines (so it looked broken rather than cheap), and ceilings on meters
+    that no stage ever charged (so they were numbers that could not be
+    reached).
+    """
+    from stageflow import Context, Policy, Session, get_stages
+    from stageflow.exceptions import PipelineValidationError
+
+    from app.plans import PLANS, policy_for
+
+    problems = []
+
+    # 1. every name in a plan is a stage that exists
+    registered = set(get_stages())
+    for name, policy in PLANS.items():
+        missing = sorted((policy.stages or set()) - registered)
+        if missing:
+            problems.append(f"plan '{name}' allows stages nobody registered: {missing}")
+
+    def load(filename):
+        path = ROOT / "pipelines" / filename
+        return Pipeline.from_dict(json.loads(path.read_text(encoding="utf-8")))
+
+    # 2. the cheap plan runs its own pipeline, and refuses the one it lacks
+    basic = policy_for("basic")
+    try:
+        load("06-rules-only.json").validate(basic)
+    except PipelineValidationError as exc:
+        problems.append(f"the basic plan cannot run 06-rules-only: {exc}")
+    try:
+        load("05-batch-triage.json").validate(basic)
+        problems.append("the basic plan accepted 05-batch-triage, which needs a map node")
+    except PipelineValidationError:
+        pass
+
+    # 3. the meters move, and a ceiling on them stops a run
+    session = Session(id="plan-basic", pipeline=load("06-rules-only.json"),
+                      context=Context(vars={"ticket_id": "T-1001"}), policy=basic)
+    result = await session.run()
+    for meter in ("kb_lookups", "replies_sent"):
+        if not result.meters.get(meter):
+            problems.append(f"nothing charged '{meter}', which the basic plan limits")
+
+    broke = Policy(
+        stages=basic.stages, node_types=basic.node_types,
+        limits=replace(basic.limits, counters={**basic.limits.counters, "kb_lookups": 0}),
+    )
+    stopped = await Session(id="plan-ceiling", pipeline=load("06-rules-only.json"),
+                            context=Context(vars={"ticket_id": "T-1001"}),
+                            policy=broke).run()
+    if (stopped.result or {}).get("status") != "budget_exceeded":
+        problems.append(f"a zero ceiling on kb_lookups did not stop the run: {stopped.result}")
+
+    if problems:
+        for problem in problems:
+            print(f"  FAIL  {problem}")
+        return problems
+    print(f"  ok    basic runs 06-rules-only, refuses 05-batch-triage, "
+          f"spends {result.meters['kb_lookups']:.0f} kb_lookups and stops at zero")
+    return problems
+
+
 def main() -> int:
     print("the backend describes itself:")
     problems = asyncio.run(check_meta())
@@ -184,6 +256,8 @@ def main() -> int:
     problems += asyncio.run(check_plan_is_not_a_claim())
     print("pipelines are valid:")
     problems += check_valid()
+    print("the plans are real:")
+    problems += asyncio.run(check_plans_are_real())
     print("the full pipeline runs without an API key:")
     problems += asyncio.run(check_runs_without_key())
 

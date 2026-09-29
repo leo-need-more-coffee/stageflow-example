@@ -1,0 +1,106 @@
+{
+  "metadata": {
+    "title": "5 · Batch triage",
+    "description": "One region of the graph run once per ticket: load it, classify it by rules, collect the verdicts. Needs the `map` node, which the basic plan does not have."
+  },
+  "variables": {
+    "ticket_ids": "list<string>",
+    "topics": "list<string>",
+    "urgencies": "list<string>",
+    "labels": "list<string>"
+  },
+  "entry": "start",
+  "nodes": [
+    {
+      "id": "start",
+      "type": "entry",
+      "variables": {
+        "ticket_ids": [
+          "T-1001",
+          "T-1002",
+          "T-1003",
+          "T-1004",
+          "T-1005"
+        ]
+      },
+      "next": "per_ticket"
+    },
+    {
+      "id": "per_ticket",
+      "type": "map",
+      "items": "vars.ticket_ids",
+      "body": "load",
+      "item_var": "ticket_id",
+      "index_var": "i",
+      "collect": {
+        "topic": "topics",
+        "urgency": "urgencies",
+        "label": "labels"
+      },
+      "mode": "parallel",
+      "cancel_on_error": true,
+      "next": "report"
+    },
+    {
+      "id": "load",
+      "type": "stage",
+      "stage": "LoadTicketStage",
+      "arguments": {
+        "vars": {
+          "ticket_id": "ticket_id"
+        }
+      },
+      "outputs": {
+        "text": "text",
+        "subject": "subject"
+      },
+      "next": "classify"
+    },
+    {
+      "id": "classify",
+      "type": "stage",
+      "stage": "ClassifyByRulesStage",
+      "arguments": {
+        "vars": {
+          "text": "text",
+          "subject": "subject"
+        }
+      },
+      "outputs": {
+        "topic": "topic",
+        "urgency": "urgency"
+      },
+      "next": "label"
+    },
+    {
+      "id": "label",
+      "type": "stage",
+      "stage": "TemplateStage",
+      "arguments": {
+        "const": {
+          "template": "{ticket_id}: {topic}/{urgency}"
+        },
+        "vars": {
+          "ticket_id": "ticket_id",
+          "topic": "topic",
+          "urgency": "urgency"
+        }
+      },
+      "outputs": {
+        "value": "label"
+      }
+    },
+    {
+      "id": "report",
+      "type": "terminal",
+      "result": {
+        "status": "ok"
+      },
+      "artifacts": [
+        "topics",
+        "urgencies",
+        "labels"
+      ]
+    }
+  ]
+}

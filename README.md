@@ -49,16 +49,25 @@ through once.
 
 ![The log of a run whose model road failed](docs/img/events.png)
 
-## The four pipelines
+## The six pipelines
 
-The same bot at four sizes; each one adds exactly one idea.
+The same bot at six sizes; each one adds exactly one idea, and between them
+they use every node type the core has.
 
-| File | Nodes | What is new |
-|---|---|---|
-| `01-triage.json` | 4 | a straight line: load a ticket, let the model read it |
-| `02-auto-reply.json` | 10 | a knowledge base search and the first `condition` |
-| `03-routing.json` | 13 | `parallel` and a `switch` on urgency |
-| `04-support-bot.json` | 16 + 5 | `try`/`except` down to keyword rules, `retry`, and a subpipeline that writes the reply |
+| File | Nodes | What is new | Runs on |
+|---|---|---|---|
+| `01-triage.json` | 4 | a straight line: load a ticket, let the model read it | pro, full |
+| `02-auto-reply.json` | 10 | a knowledge base search and the first `condition` | pro, full |
+| `03-routing.json` | 13 | `parallel` and a `switch` on urgency | pro, full |
+| `04-support-bot.json` | 16 + 5 | `try`/`except` down to keyword rules, `retry`, and a subpipeline that writes the reply | pro, full |
+| `05-batch-triage.json` | 6 | `map`: one region of the graph run once per ticket, in parallel, collecting the verdicts | pro, full |
+| `06-rules-only.json` | 12 | the whole bot with no model at all — the pipeline the `basic` plan is built around | every plan |
+
+The last two exist to make the plans mean something. `06-rules-only` is what a
+tier without model access still gets: keywords decide the topic, the knowledge
+base answers, and anything it cannot answer goes to a person. `05-batch-triage`
+needs the `map` node, which `basic` does not have — open it on that plan and
+the editor greys the node out and says why, before anybody presses Run.
 
 ## The stages
 
@@ -78,6 +87,26 @@ The same bot at four sizes; each one adds exactly one idea.
 ticket into a strict JSON schema, `LlmReplyStage` writes the reply as a stream.
 Their four error classes (`LlmAuthError`, `LlmRateLimited`, `LlmUnavailable`,
 `LlmBadAnswer`) are what the graph routes on.
+
+### What a run costs
+
+Most of these stages are free and say so by declaring nothing: reading a JSON
+file costs the platform nothing worth counting, and a meter nobody needs is a
+number in the way. The rest take part in the budget, and between them they show
+both halves of it:
+
+| Stage | Reserves | Charges | Why that way round |
+|---|---|---|---|
+| `LlmTriageStage`, `LlmReplyStage` | `llm_calls`, `tokens` by the length of the arguments | `llm_calls`, `tokens` from the provider's `usage` | expensive: a call that cannot be paid for should not be sent, and what it really came to is known only afterwards |
+| `SearchKnowledgeStage` | — | `kb_lookups` | costs the same whatever it is given; nothing to gate a run on |
+| `SendReplyStage` | — | `replies_sent`, `reply_chars` | neither is known before the reply exists |
+| `EscalateStage` | — | `escalations` | the most expensive thing this bot can do is take up a person's time |
+
+None of those names is the core's. `kb_lookups`, `replies_sent`, `escalations`
+are units of *this* business, which is the point: a host counts what is scarce
+for it, and what a unit is worth is a price list that changes without any code
+changing. The plans below put ceilings on them, and `result.meters` is what an
+invoice would be built from.
 
 ## Keys
 
@@ -106,9 +135,21 @@ stub, which is how to try the first three pipelines without a real key.
 ## Plans, and where a plan is checked
 
 Three plans (`app/plans.py`), each of them a `Policy`: which stages and node
-types may be composed, and how much a run may spend. `basic` has no model
-stages and no `map`; `pro` has everything with ceilings; `full` is the
-unrestricted example.
+types may be composed, and how much a run may spend.
+
+| | `basic` | `pro` | `full` |
+|---|---|---|---|
+| stages | the seven rules-only ones, plus the core's plumbing | all | all |
+| node types | entry, stage, condition, switch, terminal | all | all |
+| `seconds` / `steps` | 15 / 200 | 120 / 5 000 | — |
+| `tokens` / `llm_calls` | no model at all | 200 000 / 100 | — |
+| `kb_lookups` / `replies_sent` / `escalations` | 20 / 1 / 1 | 2 000 / 200 / 50 | — |
+| `concurrency` / `depth` | 2 / 2 | 8 / 4 | — |
+| retry | 2 attempts, 2 s apart | 5 attempts, 30 s apart | — |
+
+`basic` is a tier that still works: it runs `06-rules-only.json` end to end.
+That is deliberate — a plan that can run nothing at all teaches nothing about
+plans, and this repository has had one of those.
 
 Who is on which is decided by a token (`app/auth.py`):
 

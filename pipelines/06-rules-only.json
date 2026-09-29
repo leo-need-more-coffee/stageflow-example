@@ -1,0 +1,190 @@
+{
+  "metadata": {
+    "title": "6 · Rules only",
+    "description": "The whole bot with no model and no network: keywords decide the topic, the knowledge base answers, and anything it cannot answer goes to a person. This is what the basic plan can run."
+  },
+  "variables": {
+    "ticket_id": "string",
+    "topic": "string",
+    "urgency": "string",
+    "answer": "string",
+    "reply": "string"
+  },
+  "entry": "start",
+  "nodes": [
+    {
+      "id": "start",
+      "type": "entry",
+      "variables": {
+        "ticket_id": "T-1001"
+      },
+      "next": "load"
+    },
+    {
+      "id": "load",
+      "type": "stage",
+      "stage": "LoadTicketStage",
+      "arguments": {
+        "vars": {
+          "ticket_id": "ticket_id"
+        }
+      },
+      "outputs": {
+        "text": "text",
+        "subject": "subject",
+        "customer_id": "customer_id"
+      },
+      "next": "customer"
+    },
+    {
+      "id": "customer",
+      "type": "stage",
+      "stage": "LoadCustomerStage",
+      "arguments": {
+        "vars": {
+          "customer_id": "customer_id"
+        }
+      },
+      "outputs": {
+        "name": "name",
+        "plan": "customer_plan"
+      },
+      "next": "classify"
+    },
+    {
+      "id": "classify",
+      "type": "stage",
+      "stage": "ClassifyByRulesStage",
+      "arguments": {
+        "vars": {
+          "text": "text",
+          "subject": "subject"
+        }
+      },
+      "outputs": {
+        "topic": "topic",
+        "urgency": "urgency",
+        "matched": "matched"
+      },
+      "next": "search"
+    },
+    {
+      "id": "search",
+      "type": "stage",
+      "stage": "SearchKnowledgeStage",
+      "arguments": {
+        "vars": {
+          "text": "text",
+          "topic": "topic"
+        }
+      },
+      "outputs": {
+        "found": "found",
+        "answer": "answer",
+        "article_id": "article_id"
+      },
+      "next": "route"
+    },
+    {
+      "id": "route",
+      "type": "switch",
+      "cases": [
+        {
+          "when": "vars.found && vars.urgency == 'high'",
+          "next": "escalate_urgent"
+        },
+        {
+          "when": "vars.found",
+          "next": "render"
+        }
+      ],
+      "default": "escalate_unknown"
+    },
+    {
+      "id": "render",
+      "type": "stage",
+      "stage": "RenderReplyStage",
+      "arguments": {
+        "vars": {
+          "answer": "answer",
+          "name": "name",
+          "ticket_id": "ticket_id"
+        }
+      },
+      "outputs": {
+        "reply": "reply"
+      },
+      "next": "send"
+    },
+    {
+      "id": "send",
+      "type": "stage",
+      "stage": "SendReplyStage",
+      "arguments": {
+        "vars": {
+          "reply": "reply",
+          "ticket_id": "ticket_id"
+        }
+      },
+      "outputs": {
+        "chars": "chars"
+      },
+      "next": "answered"
+    },
+    {
+      "id": "escalate_urgent",
+      "type": "stage",
+      "stage": "EscalateStage",
+      "arguments": {
+        "const": {
+          "reason": "urgent, and a rules-only tier does not answer those itself"
+        },
+        "vars": {
+          "ticket_id": "ticket_id"
+        }
+      },
+      "outputs": {
+        "task_id": "task_id"
+      },
+      "next": "handed_over"
+    },
+    {
+      "id": "escalate_unknown",
+      "type": "stage",
+      "stage": "EscalateStage",
+      "arguments": {
+        "const": {
+          "reason": "no article matched the keywords"
+        },
+        "vars": {
+          "ticket_id": "ticket_id"
+        }
+      },
+      "outputs": {
+        "task_id": "task_id"
+      },
+      "next": "handed_over"
+    },
+    {
+      "id": "answered",
+      "type": "terminal",
+      "result": {
+        "status": "answered"
+      },
+      "artifacts": [
+        "reply",
+        "article_id"
+      ]
+    },
+    {
+      "id": "handed_over",
+      "type": "terminal",
+      "result": {
+        "status": "escalated"
+      },
+      "artifacts": [
+        "task_id"
+      ]
+    }
+  ]
+}

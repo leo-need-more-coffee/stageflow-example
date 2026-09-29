@@ -13,16 +13,35 @@ from __future__ import annotations
 
 from stageflow import Limits, Policy
 
+#: The stages of the bot that need no model and no network: everything in
+#: ``app/stages/support.py``. Named as a list rather than "everything except
+#: the LLM ones", because a plan that is defined by subtraction grows a hole
+#: the day somebody registers a stage.
+RULES_ONLY = {
+    "LoadTicketStage", "LoadCustomerStage", "ClassifyByRulesStage",
+    "SearchKnowledgeStage", "RenderReplyStage", "SendReplyStage",
+    "EscalateStage",
+}
+
+#: The core's own small stages — setting a variable, concatenating two. Every
+#: plan gets them: they are the plumbing a graph is wired with, and a tier
+#: that cannot set a variable is not a cheaper tier but a broken one.
+PLUMBING = {"SetValueStage", "CopyValueStage", "ConcatStage", "TemplateStage"}
+
 PLANS: dict[str, Policy] = {
     # everything this backend registers, with room to work
     "full": Policy(),
     "basic": Policy(
-        # no model calls at all: the keyword rules are in, the LLM is not
-        stages={"LoadTicketStage", "ClassifyByRulesStage", "SearchKbStage",
-                "TemplateStage", "SetValueStage", "ConcatStage"},
+        # no model calls at all: the keyword rules are in, the LLM is not.
+        # `06-rules-only.json` is the pipeline this plan is built around —
+        # a tier that can run nothing at all teaches nothing about tiers
+        stages=RULES_ONLY | PLUMBING,
         node_types={"entry", "stage", "condition", "switch", "terminal"},
         limits=Limits(
-            counters={"seconds": 15, "steps": 200, "iterations": 50},
+            counters={"seconds": 15, "steps": 200, "iterations": 50,
+                      # the business meters, which is what a support plan
+                      # would really be sold by
+                      "kb_lookups": 20, "replies_sent": 1, "escalations": 1},
             gauges={"concurrency": 2, "depth": 2, "frame_bytes": 200_000},
             max_retries=2,
             max_delay_seconds=2,
@@ -32,7 +51,9 @@ PLANS: dict[str, Policy] = {
         node_types=None,  # every type the core has
         limits=Limits(
             counters={"seconds": 120, "steps": 5_000, "iterations": 2_000,
-                      "tokens": 200_000, "llm_calls": 100},
+                      "tokens": 200_000, "llm_calls": 100,
+                      "kb_lookups": 2_000, "replies_sent": 200,
+                      "escalations": 50},
             gauges={"concurrency": 8, "depth": 4, "frame_bytes": 4_000_000},
             max_retries=5,
             max_delay_seconds=30,
