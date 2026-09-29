@@ -58,7 +58,6 @@ class LoadTicketStage(BaseStage):
     description: "Takes a prepared ticket out of data/tickets.json"
     icon: "/icons/ticket.svg"
     icon_mono: true
-    category: "support.data"
     arguments:
       ticket_id:
         type: string
@@ -107,7 +106,6 @@ class LoadCustomerStage(BaseStage):
     description: "The customer's plan and how fast they are owed an answer"
     icon: "/icons/user.svg"
     icon_mono: true
-    category: "support.data"
     arguments:
       customer_id:
         type: string
@@ -151,7 +149,6 @@ class ClassifyByRulesStage(BaseStage):
     description: "Topic and urgency by keywords — no model, no network"
     icon: "/icons/tag.svg"
     icon_mono: true
-    category: "support.triage"
     arguments:
       text:
         type: string
@@ -211,7 +208,6 @@ class SearchKnowledgeStage(BaseStage):
     description: "Looks for an article in the knowledge base by topic and words"
     icon: "/icons/book.svg"
     icon_mono: true
-    category: "support.data"
     arguments:
       text:
         type: string
@@ -275,7 +271,6 @@ class RenderReplyStage(BaseStage):
     description: "Fills the placeholders of an answer: {ticket_id}, {name}, …"
     icon: "/icons/pen.svg"
     icon_mono: true
-    category: "support.reply"
     arguments:
       answer:
         type: string
@@ -328,7 +323,6 @@ class SendReplyStage(BaseStage):
     description: "Sends the reply to the customer — and types it out as it goes"
     icon: "/icons/send.svg"
     icon_mono: true
-    category: "support.reply"
     arguments:
       reply:
         type: string
@@ -390,7 +384,6 @@ class EscalateStage(BaseStage):
     description: "Hands the ticket to a human and says why"
     icon: "/icons/escalate.svg"
     icon_mono: true
-    category: "support.reply"
     arguments:
       ticket_id:
         type: string

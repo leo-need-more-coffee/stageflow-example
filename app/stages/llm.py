@@ -194,8 +194,6 @@ class LlmTriageStage(BaseStage):
     icon: "/icons/sparkles.svg"
     icon_mono: true
     color: "#c084fc"
-    category: "support.triage"
-    timeout: 60
     reserve:
       llm_calls: 1
       tokens: "size(args.text) / 4 + 300"
@@ -285,8 +283,6 @@ class LlmReplyStage(BaseStage):
     icon: "/icons/sparkles.svg"
     icon_mono: true
     color: "#a78bfa"
-    category: "support.reply"
-    timeout: 90
     reserve:
       llm_calls: 1
       tokens: "(size(args.text) + size(args.article)) / 4 + 600"
