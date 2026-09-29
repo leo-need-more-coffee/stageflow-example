@@ -15,6 +15,15 @@ to be guessed from its name. The decisions live in the graph — `condition`,
 
 The one thing that does go to a live service is classification, and that lives
 apart, in ``llm.py``.
+
+Most of these are free, and say so by declaring nothing: a stage that reads a
+JSON file costs the platform nothing worth counting, and a meter nobody needs
+is a number in the way. Three of them do charge, and they charge **units of
+this business rather than seconds or bytes** — `kb_lookups`, `replies_sent`,
+`escalations`. The core fixes none of those names; a host counts what is
+scarce for it, and what a unit is worth is a price list that changes without
+any code changing. That is the half of the budget worth showing here: the
+expensive, model-shaped half lives in ``llm.py``.
 """
 from __future__ import annotations
 
@@ -246,6 +255,10 @@ class SearchKnowledgeStage(BaseStage):
         hits, article = ranked[0] if ranked else (0, base["fallback"])
         if not hits:
             article = base["fallback"]
+        # charged rather than reserved: a lookup costs the same whatever it is
+        # given, and there is nothing here expensive enough to gate a run on
+        # before it happens
+        self.charge(kb_lookups=1)
         self.set_outputs({
             "found": bool(hits),
             "article": article,
@@ -364,6 +377,10 @@ class SendReplyStage(BaseStage):
         self.emit("reply_sent", {
             "ticket_id": ticket_id, "channel": channel, "chars": len(reply),
         })
+        # what a plan would actually meter a support bot by: messages out, and
+        # how much was written. Neither is known before the reply exists, so
+        # both are charged and neither is reserved
+        self.charge(replies_sent=1, reply_chars=len(reply))
         self.set_outputs({"sent": True, "chars": len(reply)})
 
 
@@ -410,4 +427,6 @@ class EscalateStage(BaseStage):
         # different number every run is a demo nobody can point at
         task_id = f"HUMAN-{ticket_id.split('-')[-1]}"
         self.emit("escalated", {"ticket_id": ticket_id, "queue": queue, "reason": reason})
+        # the most expensive thing this bot can do is take up a person's time
+        self.charge(escalations=1)
         self.set_outputs({"task_id": task_id, "queue": queue})
