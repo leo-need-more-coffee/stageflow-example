@@ -65,9 +65,15 @@ class Run:
             "events": self.bus.size,
             # what the run has spent so far, against what it was allowed:
             # a client showing "12 of 100" needs both halves, and a run that
-            # stopped on a ceiling needs to be able to say which one
+            # stopped on a ceiling needs to be able to say which one. The
+            # gauges are named as the report names them — `peak_depth` — so
+            # that a client can pair the two without knowing the difference
             "meters": self.session.budget.report(),
-            "limits": dict(self.session.budget.limits.counters),
+            "limits": {
+                **self.session.budget.limits.counters,
+                **{f"peak_{name}": value
+                   for name, value in self.session.budget.limits.gauges.items()},
+            },
             **debug,
         }
 
