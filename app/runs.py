@@ -19,6 +19,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.plans import current_policy
 from stageflow import Context, Pipeline, Session, StepDebugger
 
 from app.events import EventBus, jsonable, telemetry_to_dict
@@ -62,6 +63,11 @@ class Run:
             "artifacts": mask(self.artifacts),
             "error": self.error,
             "events": self.bus.size,
+            # what the run has spent so far, against what it was allowed:
+            # a client showing "12 of 100" needs both halves, and a run that
+            # stopped on a ceiling needs to be able to say which one
+            "meters": self.session.budget.report(),
+            "limits": dict(self.session.budget.limits.counters),
             **debug,
         }
 
@@ -77,8 +83,11 @@ class RunManager:
     # -------------------------------------------------------------- create
 
     def start(self, payload: dict) -> Run:
+        policy = current_policy()
         pipeline = Pipeline.from_dict(payload.get("pipeline") or {})
-        pipeline.validate()  # description errors answer right away, not in a thread
+        # description errors — and anything the plan refuses — answer right
+        # away, from the request, rather than from a thread minutes later
+        pipeline.validate(policy)
 
         mode = "step" if payload.get("mode") == "step" else "run"
         delay = float(payload.get("delay") or 0)
@@ -97,6 +106,7 @@ class RunManager:
             context=Context(vars=start_vars),
             event_handler=lambda event: bus.push(telemetry_to_dict(event)),
             debugger=debugger,
+            policy=policy,
         )
         run = Run(id=run_id, session=session, debugger=debugger, bus=bus, mask=mask)
         run.thread = threading.Thread(target=self._execute, args=(run,), daemon=True)

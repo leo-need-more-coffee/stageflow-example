@@ -25,15 +25,31 @@ sys.path.insert(0, str(ROOT))
 import app.stages  # noqa: E402,F401 - registers the stages
 
 from stageflow import Context, Pipeline, Session  # noqa: E402
+from stageflow.exceptions import PipelineValidationError  # noqa: E402
 
 
 def check_valid() -> list[str]:
+    """Every shipped pipeline is well formed, and allowed by the plan.
+
+    A plan narrower than the default is *supposed* to refuse some of these —
+    that is what a plan is — so a refusal is only a problem on the plan this
+    repository ships with, which is also the one CI runs.
+    """
+    from app.plans import PLAN, current_policy
+
+    policy = current_policy()
     problems = []
     for path in sorted((ROOT / "pipelines").glob("*.json")):
         data = json.loads(path.read_text(encoding="utf-8"))
         try:
-            Pipeline.from_dict(data).validate()
+            Pipeline.from_dict(data).validate(policy)
             print(f"  ok    {path.name}")
+        except PipelineValidationError as exc:
+            if PLAN == "full":
+                problems.append(f"{path.name}: {exc}")
+                print(f"  FAIL  {path.name}: {exc}")
+            else:
+                print(f"  --    {path.name}: not on plan '{PLAN}'")
         except Exception as exc:  # noqa: BLE001 - the report is the point
             problems.append(f"{path.name}: {type(exc).__name__}: {exc}")
             print(f"  FAIL  {path.name}: {exc}")
@@ -58,30 +74,45 @@ async def check_runs_without_key() -> list[str]:
 
 
 async def check_meta() -> list[str]:
-    """The answer an editor plans by, checked against the core in this process.
+    """The answer an editor plans by, checked against this process.
 
-    The endpoint is cheap to break in a way nothing else notices: it would
-    still return 200 with a stale hand-written list, and the editor would go
-    on offering a node this backend cannot run.
+    Two promises live here and both are cheap to break in a way nothing else
+    notices. The endpoint would still return 200 with a stale hand-written
+    list, and the editor would go on offering a node this backend cannot run;
+    and /api/stages would still return 200 with stages the plan forbids, so
+    the editor would draw them and the run would refuse them — the very
+    mismatch the policy exists to remove, one endpoint later.
     """
-    from stageflow import capabilities
+    from stageflow import capabilities, get_stages
     from stageflow.core.nodes import get_node_types
 
-    from app.api import API_VERSION, meta
+    from app.api import API_VERSION, meta, stages
+    from app.plans import PLAN, current_policy
 
     problems = []
+    policy = current_policy()
     answer = await meta()
-    expected = {"api": API_VERSION, **capabilities()}
-    if answer != expected:
-        problems.append(f"/api/meta answered {answer}, expected {expected}")
-        print(f"  FAIL  /api/meta {answer}")
+
+    if answer.get("api") != API_VERSION or answer.get("plan") != PLAN:
+        problems.append(f"/api/meta: api/plan wrong: {answer}")
+    if answer.get("node_types") != capabilities(policy)["node_types"]:
+        problems.append("/api/meta: node_types is not what the policy allows")
+    allowed = {name for name in get_stages() if policy.allows_stage(name)}
+    served = set((await stages())["stages"])
+    if served != allowed:
+        problems.append(f"/api/stages served {sorted(served - allowed)} "
+                        f"the plan forbids, or dropped {sorted(allowed - served)}")
+    forbidden = [t for t in get_node_types() if not policy.allows_node_type(t)]
+    if set(answer["node_types"]) & set(forbidden):
+        problems.append("/api/meta lists a node type the plan forbids")
+
+    if problems:
+        for problem in problems:
+            print(f"  FAIL  {problem}")
         return problems
-    if answer["node_types"] != sorted(get_node_types()):
-        problems.append("/api/meta node_types is not the registry")
-        print("  FAIL  /api/meta node_types is not the registry")
-        return problems
-    print(f"  ok    /api/meta  api={answer['api']} core={answer['stageflow']} "
-          f"nodes={len(answer['node_types'])} stages={answer['stages']}")
+    print(f"  ok    /api/meta  plan={PLAN} api={answer['api']} "
+          f"core={answer['stageflow']} nodes={len(answer['node_types'])} "
+          f"stages={answer['stages']}")
     return problems
 
 

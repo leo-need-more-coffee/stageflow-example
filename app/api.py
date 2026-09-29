@@ -16,6 +16,7 @@ from app.events import sse_lines
 from app.exceptions import ClientErrorRoute
 from app.runs import Run, RunManager
 from app.schemas import ControlRequest, RunRequest, VarsRequest
+from app.plans import PLAN, current_policy
 from app.secrets import env_secret_names
 
 router = APIRouter(prefix="/api", route_class=ClientErrorRoute)
@@ -42,7 +43,7 @@ FromEvent = Annotated[int, Query(alias="from", ge=0, description="read on from t
 API_VERSION = 1
 
 
-@router.get("/meta", summary="What this backend is and what its core can do")
+@router.get("/meta", summary="What this backend is and what the caller may use")
 async def meta() -> dict:
     """What a client needs before it draws anything.
 
@@ -50,16 +51,44 @@ async def meta() -> dict:
     Rather than have it keep a table of which release grew which node type, the
     core is asked directly — ``node_types`` is its registry, so a name absent
     from it is exactly a name a run would reject.
+
+    Narrowed by the plan this process serves (``app/plans.py``), because an
+    editor needs to know what *this* caller may draw. Whether a node type is
+    missing because the core is older or because the plan is narrower is not a
+    distinction it has to make.
     """
     from stageflow import capabilities
 
-    return {"api": API_VERSION, **capabilities()}
+    policy = current_policy()
+    return {"api": API_VERSION, "plan": PLAN, **capabilities(policy),
+            "limits": _limits_of(policy)}
 
 
-@router.get("/stages", summary="Specs of every registered stage")
+def _limits_of(policy) -> dict:
+    """The numbers, so a client can warn before a run instead of after."""
+    limits = policy.limits
+    return {
+        "counters": dict(limits.counters),
+        "gauges": dict(limits.gauges),
+        "max_retries": limits.max_retries,
+        "max_delay_seconds": limits.max_delay_seconds,
+    }
+
+
+@router.get("/stages", summary="Specs of the stages the caller may use")
 async def stages() -> dict:
+    """Only what the plan allows.
+
+    Sending the specs of a stage the plan forbids would have the editor draw
+    it in the palette and the run refuse it — the mismatch the whole policy
+    exists to avoid, reintroduced one endpoint later.
+    """
     from stageflow import get_stages
-    return {"stages": {name: cls.get_specs() for name, cls in get_stages().items()}}
+
+    policy = current_policy()
+    return {"stages": {name: cls.get_specs()
+                       for name, cls in get_stages().items()
+                       if policy.allows_stage(name)}}
 
 
 @router.get("/secrets", summary="NAMES of the secrets in the environment")
