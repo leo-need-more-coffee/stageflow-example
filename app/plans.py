@@ -1,11 +1,9 @@
-"""Two plans, so that the policy is something you can see rather than read about.
+"""The plans this backend serves, and the policy each one is.
 
 A real platform looks a tenant up, finds their subscription and builds the
-policy from it. This is an example backend with no tenants at all, so the plan
-is an environment variable — the point being what a plan *is*, not where it
-came from:
-
-    SF_PLAN=basic python main.py
+policy from it. This is an example backend, so the plans are a table and the
+tenant is whoever presents a token (``app/auth.py``) — the point being what a
+plan *is* and where it is checked, not where it was stored.
 
 The mapping lives here and not in the core on purpose. The core knows
 `Policy`; the words "plan", "basic" and "pro" are the platform's business, and
@@ -47,10 +45,26 @@ PLANS: dict[str, Policy] = {
     ),
 }
 
-#: Which plan this process serves. One process, one plan, because there is
-#: nobody to tell apart here; a real platform picks per request.
-PLAN = os.environ.get("SF_PLAN", "full")
+#: Who a caller is when nobody has been told apart: no tokens configured, or a
+#: request that carries none where none are demanded.
+DEFAULT_PLAN = os.environ.get("SF_PLAN", "full")
 
 
-def current_policy() -> Policy:
-    return PLANS.get(PLAN, FULL)
+def plan_names() -> list[str]:
+    """The plans a client may ask to be shown. Answered to anyone: a name is
+    not a permission, and a client that cannot see the list cannot offer it."""
+    return sorted(PLANS)
+
+
+def known(name: str | None) -> bool:
+    return name in PLANS
+
+
+def policy_for(name: str | None) -> Policy:
+    """The policy of a plan; an unknown name falls back to the default one.
+
+    Falling back rather than raising, because this is also what answers for
+    ``SF_PLAN=typo``: a misspelt environment variable should start the example
+    rather than make every endpoint 500.
+    """
+    return PLANS.get(name or "", PLANS.get(DEFAULT_PLAN, FULL))
