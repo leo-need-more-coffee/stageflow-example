@@ -26,6 +26,7 @@ demanding one, which is the behaviour to point at.
 """
 from __future__ import annotations
 
+import hashlib
 import os
 from typing import Annotated
 
@@ -92,3 +93,21 @@ def source_of(requested: str | None) -> str:
 
 
 CallerPlan = Annotated[str, Depends(caller_plan)]
+
+
+def caller_id(request: Request, _plan: CallerPlan) -> str | None:
+    """Who is calling, as far as owning a run goes: a digest of the token.
+
+    A run belongs to the credential that started it. Two tenants on the same
+    plan are still two tenants, so the plan is not the answer; the token is,
+    and it is kept as a digest so that the table of runs is not also a table
+    of credentials. With no tokens configured there is nobody to tell apart:
+    ``None``, and every run belongs to everyone, as before.
+    """
+    if not ENABLED:
+        return None
+    token = credential(request) or ""
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+CallerId = Annotated[str | None, Depends(caller_id)]

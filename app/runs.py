@@ -21,10 +21,15 @@ from typing import Any
 
 from stageflow import Context, Pipeline, Session, Policy, StepDebugger
 
+from app import config
 from app.events import EventBus, jsonable, telemetry_to_dict
 from app.secrets import Masker, env_secret_names, env_secret_value
 
 MAX_RUNS = 8  # how many runs we keep in memory (debugging, not production)
+
+
+class RunLimitReached(Exception):
+    """Too many runs going at once — for the process, or for this caller."""
 
 
 @dataclass
@@ -42,6 +47,13 @@ class Run:
     started: float = field(default_factory=time.monotonic)
     thread: threading.Thread | None = None
     mask: Any = None                 # scrubs secrets out of state and events
+    #: the credential that started it (a digest, see `app.auth.caller_id`);
+    #: None when this process tells nobody apart
+    owner: str | None = None
+    #: the last time somebody drove it — started, stepped, edited
+    touched: float = field(default_factory=time.monotonic)
+    #: stopped for sitting idle; no longer counted while its thread winds down
+    expired: bool = False
 
     @property
     def done(self) -> bool:
@@ -87,10 +99,12 @@ class RunManager:
 
     # -------------------------------------------------------------- create
 
-    def start(self, payload: dict, policy: Policy) -> Run:
+    def start(self, payload: dict, policy: Policy, owner: str | None = None) -> Run:
         """@param policy what the CALLER may do — resolved from the request in
         `app/api.py`, never from the payload. A pipeline that asks for more
-        than the policy allows is refused here, before a thread is started."""
+        than the policy allows is refused here, before a thread is started.
+        @param owner who the run belongs to; only they may see and drive it.
+        @raises RunLimitReached when too many runs are going already."""
         pipeline = Pipeline.from_dict(payload.get("pipeline") or {})
         # description errors — and anything the plan refuses — answer right
         # away, from the request, rather than from a thread minutes later
@@ -101,10 +115,20 @@ class RunManager:
         start_vars, mask = self._starting_frame(payload)
 
         with self._lock:
+            self._expire_idle_locked()
+            self._check_room_locked(owner)
             self._counter += 1
             run_id = f"run-{self._counter}"
             self._evict_locked()
+            run = self._create_locked(run_id, pipeline, policy, mode, delay,
+                                      start_vars, mask, owner)
+        run.thread.start()
+        return run
 
+    def _create_locked(self, run_id, pipeline, policy, mode, delay,
+                       start_vars, mask, owner) -> Run:
+        """Made under the same lock as the count, so that two requests at
+        once cannot both see room for one more."""
         bus = EventBus(mask=mask)
         debugger = StepDebugger(mode=mode, delay=delay, on_event=bus.push)
         session = Session(
@@ -115,17 +139,53 @@ class RunManager:
             debugger=debugger,
             policy=policy,
         )
-        run = Run(id=run_id, session=session, debugger=debugger, bus=bus, mask=mask)
+        run = Run(id=run_id, session=session, debugger=debugger, bus=bus, mask=mask,
+                  owner=owner)
         run.thread = threading.Thread(target=self._execute, args=(run,), daemon=True)
-
-        with self._lock:
-            self._runs[run_id] = run
-        run.thread.start()
+        self._runs[run_id] = run
         return run
 
-    def get(self, run_id: str) -> Run | None:
+    def get(self, run_id: str, owner: str | None = None) -> Run | None:
+        """The run, if it is this caller's. Somebody else's run is answered
+        exactly like one that does not exist: its id says nothing either way."""
         with self._lock:
-            return self._runs.get(run_id)
+            run = self._runs.get(run_id)
+        if run is None or run.owner != owner:
+            return None
+        return run
+
+    # -------------------------------------------------------------- limits
+
+    def _active_locked(self) -> list[Run]:
+        return [r for r in self._runs.values() if not r.done and not r.expired]
+
+    def _check_room_locked(self, owner: str | None) -> None:
+        active = self._active_locked()
+        if len(active) >= config.MAX_ACTIVE_RUNS:
+            raise RunLimitReached(
+                f"{len(active)} runs are going already, and this backend runs "
+                f"{config.MAX_ACTIVE_RUNS} at once; try again when one ends"
+            )
+        if owner is not None:
+            mine = sum(1 for r in active if r.owner == owner)
+            if mine >= config.MAX_RUNS_PER_CALLER:
+                raise RunLimitReached(
+                    f"these credentials have {mine} runs going, and may have "
+                    f"{config.MAX_RUNS_PER_CALLER}; stop one or let it finish"
+                )
+
+    def _expire_idle_locked(self) -> None:
+        """Stop the step-by-step runs nobody has driven for a while.
+
+        Checked when a run is about to start, which is the only moment their
+        place in the limits matters — no timer thread needed for it.
+        """
+        now = time.monotonic()
+        for run in self._active_locked():
+            if run.debugger.waiting and now - run.touched > config.RUN_IDLE_SECONDS:
+                run.expired = True
+                run.session.stop()
+                run.debugger.resume()  # release the step wait, or the stop never lands
 
     @staticmethod
     def _starting_frame(payload: dict) -> tuple[dict, Masker | None]:
@@ -164,6 +224,7 @@ class RunManager:
     # ------------------------------------------------------------- control
 
     def control(self, run: Run, payload: dict) -> dict:
+        run.touched = time.monotonic()
         action = payload.get("action")
         if action == "step":
             run.debugger.step(int(payload.get("count") or 1))
@@ -181,6 +242,7 @@ class RunManager:
         return run.state()
 
     def set_vars(self, run: Run, payload: dict) -> dict:
+        run.touched = time.monotonic()
         values = payload.get("set") or {}
         drop = payload.get("drop") or []
         if not isinstance(values, dict) or not isinstance(drop, list):

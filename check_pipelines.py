@@ -17,7 +17,10 @@ Two things, and both of them are what breaks in a demo nobody runs:
   * the plans are real: the cheap one runs the pipeline it was built around,
     refuses the one it is not meant to have, and its meters actually move. A
     plan whose ceilings nothing counts against is decoration, and decoration
-    passes every other check in this file.
+    passes every other check in this file;
+  * a run answers only to the credential that started it, and nobody can
+    start runs without end — a step-by-step run left alone gives its place
+    back. Both are about a backend serving more than one person.
 """
 from __future__ import annotations
 
@@ -249,6 +252,74 @@ async def check_plans_are_real() -> list[str]:
     return problems
 
 
+async def check_runs_belong_to_callers() -> list[str]:
+    """Another tenant's run is not found, and the limits on runs hold."""
+    from fastapi import HTTPException
+
+    from app import api, auth, config
+    from app.runs import RunManager
+    from app.schemas import RunRequest
+
+    pipeline = json.loads((ROOT / "pipelines" / "06-rules-only.json").read_text("utf-8"))
+    body = RunRequest(pipeline=pipeline, mode="step", vars={"ticket_id": "T-1001"})
+    problems: list[str] = []
+
+    saved = (auth.TOKENS, auth.ENABLED, api.runs, config.MAX_ACTIVE_RUNS,
+             config.MAX_RUNS_PER_CALLER, config.RUN_IDLE_SECONDS)
+    auth.TOKENS, auth.ENABLED = {"tok-a": "basic", "tok-b": "basic"}, True
+    api.runs = RunManager()
+    config.MAX_ACTIVE_RUNS, config.MAX_RUNS_PER_CALLER = 3, 2
+    alice, bob = "a" * 64, "b" * 64
+    try:
+        started = await api.start_run(body, caller="basic", who=alice)
+        run_id = started["id"]
+        try:
+            api.current_run(run_id, caller=bob)
+            problems.append("another credential could open somebody's run")
+        except HTTPException as exc:
+            if exc.status_code != 404:
+                problems.append(f"somebody else's run answered {exc.status_code}, not 404")
+        if api.current_run(run_id, caller=alice).id != run_id:
+            problems.append("the owner could not open their own run")
+
+        async def refused(who: str, why: str) -> None:
+            try:
+                await api.start_run(body, caller="basic", who=who)
+                problems.append(f"{why} was accepted")
+            except HTTPException as exc:
+                if exc.status_code != 429:
+                    problems.append(f"{why} answered {exc.status_code}, not 429")
+
+        await api.start_run(body, caller="basic", who=alice)
+        await refused(alice, "a third run for one credential")
+        await api.start_run(body, caller="basic", who=bob)
+        await refused(bob, "a fourth run for the process")
+
+        # every one of them is waiting for a step; left alone, they give way
+        for _ in range(100):
+            if all(r.debugger.waiting for r in api.runs._active_locked()):
+                break
+            await asyncio.sleep(0.02)
+        config.RUN_IDLE_SECONDS = 0
+        try:
+            await api.start_run(body, caller="basic", who=bob)
+        except HTTPException as exc:
+            problems.append(f"idle debug runs still held their places: {exc.detail}")
+    finally:
+        for run in list(api.runs._runs.values()):
+            run.session.stop()
+            run.debugger.resume()
+        (auth.TOKENS, auth.ENABLED, api.runs, config.MAX_ACTIVE_RUNS,
+         config.MAX_RUNS_PER_CALLER, config.RUN_IDLE_SECONDS) = saved
+
+    for problem in problems:
+        print(f"  FAIL  {problem}")
+    if not problems:
+        print("  ok    a run is its owner's, two per credential, "
+              "three at once, and an idle one gives way")
+    return problems
+
+
 def main() -> int:
     print("the backend describes itself:")
     problems = asyncio.run(check_meta())
@@ -260,6 +331,8 @@ def main() -> int:
     problems += asyncio.run(check_plans_are_real())
     print("the full pipeline runs without an API key:")
     problems += asyncio.run(check_runs_without_key())
+    print("runs belong to whoever started them:")
+    problems += asyncio.run(check_runs_belong_to_callers())
 
     if problems:
         print(f"\n{len(problems)} problem(s)")

@@ -2,7 +2,7 @@
 
 # StageFlow example: a support bot
 
-**A working StageFlow backend to point the editor at — four pipelines that grow
+**A working StageFlow backend to point the editor at — six pipelines that grow
 from four nodes to the whole bot.**
 
 [![tests](https://github.com/leo-need-more-coffee/stageflow-example/actions/workflows/tests.yml/badge.svg)](https://github.com/leo-need-more-coffee/stageflow-example/actions/workflows/tests.yml)
@@ -127,6 +127,9 @@ everywhere on the way back.
 | `SF_ALLOW_ORIGIN` | the origin allowed by CORS (default `*`) |
 | `SF_TOKENS` | `token:plan,token:plan` — configure one and every endpoint starts demanding a credential |
 | `SF_AUTH_HEADER` | which header it arrives in (default `Authorization`) |
+| `SF_MAX_ACTIVE_RUNS` | how many runs may be going at once in the process (default `4`); one more is answered with 429 |
+| `SF_MAX_RUNS_PER_CALLER` | how many of those one credential may hold (default `2`); only with `SF_TOKENS` |
+| `SF_RUN_IDLE_SECONDS` | a step-by-step run waiting this long for a command is stopped, giving its place back (default `600`) |
 | `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL` | read by the two model stages |
 
 `OPENAI_BASE_URL` points them at any OpenAI-compatible gateway, proxy or local
@@ -168,6 +171,11 @@ SF_TOKENS="demo-basic:basic,demo-pro:pro" python main.py
 The editor then asks for the header on its connection screen. With no tokens
 configured there is no authentication at all and everyone gets `full` — the
 example starts and works, which is the point of an example.
+
+A run belongs to the credential that started it. Another token — on the same
+plan or not — gets `404` for it, the same answer as for a run that never
+existed, so it can neither read the frame nor step, edit or stop it. With no
+tokens there is nobody to tell apart, and every run is everyone's.
 
 The part worth looking at is the asymmetry between the two halves:
 
@@ -216,7 +224,7 @@ app/runs.py             a run: a real Session in its own thread, with the debugg
 app/events.py           the event log and the SSE stream out of it
 app/secrets.py          which secrets the server has, and masking them again
 app/stages/             the stages of the bot
-pipelines/, data/       the four pipelines and the prepared situations
+pipelines/, data/       the six pipelines and the prepared situations
 ```
 
 ## After an edit

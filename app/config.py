@@ -23,3 +23,18 @@ PORT = int(os.environ.get("SF_PORT", 8765))
 #: example backend, and the editor may be opened from a file, a container or a
 #: colleague's machine. Narrow it down when the backend stops being one.
 ALLOW_ORIGIN = os.environ.get("SF_ALLOW_ORIGIN", "*")
+
+#: How many runs may be going at once in this process, across everybody. A run
+#: is a thread with its own event loop, and a plan's ceilings bound what one
+#: run spends — not how many of them somebody starts.
+MAX_ACTIVE_RUNS = int(os.environ.get("SF_MAX_ACTIVE_RUNS", 4))
+
+#: How many of those one credential may hold. Only when tokens are configured:
+#: without them every caller is the same anonymous one, and the process-wide
+#: number above is the only one that means anything.
+MAX_RUNS_PER_CALLER = int(os.environ.get("SF_MAX_RUNS_PER_CALLER", 2))
+
+#: A step-by-step run that has been waiting for a command this long is
+#: stopped. A debugging session left open in a closed tab would otherwise hold
+#: its place in the limits above for as long as the process lives.
+RUN_IDLE_SECONDS = float(os.environ.get("SF_RUN_IDLE_SECONDS", 600))

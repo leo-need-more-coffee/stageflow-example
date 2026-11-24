@@ -18,17 +18,18 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
-from app.auth import CallerPlan, caller_plan, source_of
+from app.auth import CallerId, CallerPlan, caller_plan, source_of
 from app.events import sse_lines
 from app.exceptions import ClientErrorRoute
-from app.runs import Run, RunManager
+from app.runs import Run, RunLimitReached, RunManager
 from app.schemas import ControlRequest, RunRequest, VarsRequest
 from app.plans import known, plan_names, policy_for
 from app.secrets import env_secret_names
 
-# The credential is demanded on every endpoint rather than on the run alone:
-# a run is driven by four of them, and a stranger who may step and stop it is
-# not meaningfully less of a stranger for not having started it. With no
+# The credential is demanded on every endpoint rather than on the run alone,
+# and a run answers only to the credential that started it (`current_run`):
+# a stranger who may step and stop it, or read its frame, is not meaningfully
+# less of a stranger for holding a token of their own. With no
 # tokens configured the dependency lets everyone through (`app/auth.py`).
 router = APIRouter(prefix="/api", route_class=ClientErrorRoute,
                    dependencies=[Depends(caller_plan)])
@@ -37,8 +38,10 @@ router = APIRouter(prefix="/api", route_class=ClientErrorRoute,
 runs = RunManager()
 
 
-def current_run(run_id: str) -> Run:
-    run = runs.get(run_id)
+def current_run(run_id: str, caller: CallerId) -> Run:
+    # a run belongs to the credential that started it: another tenant's is
+    # "not found", the same answer as one that never existed
+    run = runs.get(run_id, owner=caller)
     if run is None:
         raise HTTPException(404, "run not found")
     return run
@@ -133,7 +136,7 @@ async def secrets() -> dict:
 
 
 @router.post("/run", status_code=201, summary="Start a run")
-async def start_run(body: RunRequest, caller: CallerPlan) -> dict:
+async def start_run(body: RunRequest, caller: CallerPlan, who: CallerId = None) -> dict:
     """Starts a run on the caller's plan — and only on it.
 
     ``body.plan`` is not a choice: it is what the client *drew against*, and
@@ -147,7 +150,10 @@ async def start_run(body: RunRequest, caller: CallerPlan) -> dict:
             f"this graph was prepared for plan '{body.plan}', and these "
             f"credentials are on '{caller}'",
         )
-    run = runs.start(body.model_dump(), policy_for(caller))
+    try:
+        run = runs.start(body.model_dump(), policy_for(caller), owner=who)
+    except RunLimitReached as exc:
+        raise HTTPException(429, str(exc)) from exc
     return {"id": run.id, "state": run.state()}
 
 
