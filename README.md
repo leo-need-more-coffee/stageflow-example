@@ -35,8 +35,8 @@ python main.py                 # http://127.0.0.1:8765
 ```
 
 Open the editor, type `http://127.0.0.1:8765` on the connection screen, then
-"File" → "Import JSON…" to open a pipeline from `pipelines/` and "Run" →
-"Debug step by step" to walk it a node at a time.
+**⋯ → Import JSON…** to open a pipeline from `pipelines/` and **Run → Debug
+step by step** (`Shift+F5`) to walk it a node at a time.
 
 `uvicorn main:app --reload` is the same server with reloading while you edit a
 stage. `http://127.0.0.1:8765/docs` lists every endpoint and can start a run
@@ -47,7 +47,7 @@ failing is a road on the graph, and it leads to the keyword rules. The first
 three stop at the triage node with `LlmAuthError`, which is worth stepping
 through once.
 
-![The log of a run whose model road failed](docs/img/events.png)
+![A run whose model road failed and went on to the rules](docs/img/events.png)
 
 ## The seven pipelines
 
@@ -212,7 +212,7 @@ The part worth looking at is the asymmetry between the two halves:
 
 | | Who may ask | What it is for |
 |---|---|---|
-| `GET /api/meta?plan=pro` | anyone | *show* me what that plan allows — an unverified question, so that an editor can grey out a palette without anybody logging in, and so that "what would I lose on the cheaper tier" is answerable |
+| `GET /api/meta?plan=pro` | anyone | *show* me what that plan allows — an unverified question, so that an editor can grey out its add menu without anybody logging in, and so that "what would I lose on the cheaper tier" is answerable |
 | `POST /api/run` | the credential decides | the plan is resolved from the header and nowhere else. `plan` in the body is what the client *drew against*; if it disagrees the run is refused with a message that names both, rather than narrowed in silence |
 
 Wire `?plan=` into the run — one line, and an obvious-looking one — and every
