@@ -32,6 +32,12 @@ class ControlRequest(BaseModel):
     delay: float = Field(0, ge=0)
 
 
+class InputRequest(BaseModel):
+    #: The input type the run waits for (`input` of its `wait` node).
+    type: str = Field(min_length=1)
+    payload: dict[str, Any] = {}
+
+
 class VarsRequest(BaseModel):
     set: dict[str, Any] = {}
     drop: list[str] = []

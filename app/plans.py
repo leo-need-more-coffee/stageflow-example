@@ -26,7 +26,8 @@ PLANS: dict[str, Policy] = {
         # No model calls: keyword rules only. `06-rules-only.json` is the
         # pipeline built for this plan.
         stages=RULES_ONLY | PLUMBING,
-        node_types={"entry", "stage", "condition", "switch", "terminal"},
+        # `wait`: an agent reviewing a draft costs the platform nothing.
+        node_types={"entry", "stage", "condition", "switch", "wait", "terminal"},
         limits=Limits(
             counters={"seconds": 15, "steps": 200, "iterations": 50,
                       # Business meters, which a support product would bill by.

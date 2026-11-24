@@ -31,3 +31,11 @@ MAX_RUNS_PER_CALLER = int(os.environ.get("SF_MAX_RUNS_PER_CALLER", 2))
 #: A step-by-step run with no command for this long is stopped, so debugging
 #: sessions left in closed tabs do not hold run slots forever.
 RUN_IDLE_SECONDS = float(os.environ.get("SF_RUN_IDLE_SECONDS", 600))
+
+#: Where runs that wait (a pipeline with a `wait` node) are saved, so that
+#: they outlive a restart. SQLite; created on first use.
+RUNS_DB = Path(os.environ.get("SF_RUNS_DB", ROOT / "runs.db"))
+
+#: How often waiting runs are checked for a passed deadline (`timeout` on a
+#: `wait` node), in seconds.
+DUE_CHECK_SECONDS = float(os.environ.get("SF_DUE_CHECK_SECONDS", 60))

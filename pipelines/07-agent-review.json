@@ -1,0 +1,223 @@
+{
+  "metadata": {
+    "title": "7 · An agent reviews the reply",
+    "description": "The rules-only bot drafts a reply, and a support agent reads it before it goes out: approve it, edit it, or take the ticket over. The run waits for the agent as long as it takes — saved on the server, so a restart loses nothing — and hands the ticket to a person if nobody has looked in a day."
+  },
+  "variables": {
+    "ticket_id": "string",
+    "topic": "string",
+    "urgency": "string",
+    "answer": "string",
+    "reply": "string",
+    "verdict": "string"
+  },
+  "entry": "start",
+  "nodes": [
+    {
+      "id": "start",
+      "type": "entry",
+      "variables": {
+        "ticket_id": "T-1001"
+      },
+      "next": "load"
+    },
+    {
+      "id": "load",
+      "type": "stage",
+      "stage": "LoadTicketStage",
+      "arguments": {
+        "vars": {
+          "ticket_id": "ticket_id"
+        }
+      },
+      "outputs": {
+        "text": "text",
+        "subject": "subject",
+        "customer_id": "customer_id"
+      },
+      "next": "customer"
+    },
+    {
+      "id": "customer",
+      "type": "stage",
+      "stage": "LoadCustomerStage",
+      "arguments": {
+        "vars": {
+          "customer_id": "customer_id"
+        }
+      },
+      "outputs": {
+        "name": "name",
+        "plan": "customer_plan"
+      },
+      "next": "classify"
+    },
+    {
+      "id": "classify",
+      "type": "stage",
+      "stage": "ClassifyByRulesStage",
+      "arguments": {
+        "vars": {
+          "text": "text",
+          "subject": "subject"
+        }
+      },
+      "outputs": {
+        "topic": "topic",
+        "urgency": "urgency",
+        "matched": "matched"
+      },
+      "next": "search"
+    },
+    {
+      "id": "search",
+      "type": "stage",
+      "stage": "SearchKnowledgeStage",
+      "arguments": {
+        "vars": {
+          "text": "text",
+          "topic": "topic"
+        }
+      },
+      "outputs": {
+        "found": "found",
+        "answer": "answer",
+        "article_id": "article_id"
+      },
+      "next": "route"
+    },
+    {
+      "id": "route",
+      "type": "condition",
+      "condition": "vars.found",
+      "then": "render",
+      "else": "escalate_unknown"
+    },
+    {
+      "id": "render",
+      "type": "stage",
+      "stage": "RenderReplyStage",
+      "arguments": {
+        "vars": {
+          "answer": "answer",
+          "name": "name",
+          "ticket_id": "ticket_id"
+        }
+      },
+      "outputs": {
+        "reply": "reply"
+      },
+      "next": "review"
+    },
+    {
+      "id": "review",
+      "type": "wait",
+      "input": "review",
+      "outputs": {
+        "verdict": "verdict",
+        "reply.$": "has(output.text) && output.text != '' ? output.text : vars.reply"
+      },
+      "timeout": "1d",
+      "on_timeout": "escalate_unreviewed",
+      "next": "decide"
+    },
+    {
+      "id": "decide",
+      "type": "switch",
+      "cases": [
+        {
+          "when": "vars.verdict == 'approve'",
+          "next": "send"
+        }
+      ],
+      "default": "escalate_rejected"
+    },
+    {
+      "id": "send",
+      "type": "stage",
+      "stage": "SendReplyStage",
+      "arguments": {
+        "vars": {
+          "reply": "reply",
+          "ticket_id": "ticket_id"
+        }
+      },
+      "outputs": {
+        "chars": "chars"
+      },
+      "next": "answered"
+    },
+    {
+      "id": "escalate_unknown",
+      "type": "stage",
+      "stage": "EscalateStage",
+      "arguments": {
+        "const": {
+          "reason": "no article matched the keywords"
+        },
+        "vars": {
+          "ticket_id": "ticket_id"
+        }
+      },
+      "outputs": {
+        "task_id": "task_id"
+      },
+      "next": "handed_over"
+    },
+    {
+      "id": "escalate_rejected",
+      "type": "stage",
+      "stage": "EscalateStage",
+      "arguments": {
+        "const": {
+          "reason": "the agent took the ticket over"
+        },
+        "vars": {
+          "ticket_id": "ticket_id"
+        }
+      },
+      "outputs": {
+        "task_id": "task_id"
+      },
+      "next": "handed_over"
+    },
+    {
+      "id": "escalate_unreviewed",
+      "type": "stage",
+      "stage": "EscalateStage",
+      "arguments": {
+        "const": {
+          "reason": "nobody reviewed the draft within a day"
+        },
+        "vars": {
+          "ticket_id": "ticket_id"
+        }
+      },
+      "outputs": {
+        "task_id": "task_id"
+      },
+      "next": "handed_over"
+    },
+    {
+      "id": "answered",
+      "type": "terminal",
+      "result": {
+        "status": "answered"
+      },
+      "artifacts": [
+        "reply",
+        "article_id"
+      ]
+    },
+    {
+      "id": "handed_over",
+      "type": "terminal",
+      "result": {
+        "status": "escalated"
+      },
+      "artifacts": [
+        "task_id"
+      ]
+    }
+  ]
+}

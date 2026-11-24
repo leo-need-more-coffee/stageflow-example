@@ -11,6 +11,7 @@ import os
 import socket
 import subprocess
 import sys
+import tempfile
 import time
 import unittest
 import urllib.error
@@ -60,9 +61,15 @@ class Client:
     def post(self, path, body, **kw):
         return self.call("POST", path, body=body, **kw)
 
-    def events(self, run_id: str, until: str = "finished", limit: float = 20) -> list[dict]:
+    def events_from(self, run_id: str, start: int, until: str = "finished") -> list[dict]:
+        """The stream from event `start` on: how a client follows a run that
+        went on after waiting."""
+        return self.events(run_id, until=until, start=start)
+
+    def events(self, run_id: str, until: str = "finished", limit: float = 20,
+               start: int = 0) -> list[dict]:
         """Read the SSE stream of a run until an event of type `until`."""
-        request = urllib.request.Request(f"{self.base}/api/run/{run_id}/events")
+        request = urllib.request.Request(f"{self.base}/api/run/{run_id}/events?from={start}")
         request.add_header("Authorization", f"Bearer {self.token}")
         seen = []
         deadline = time.monotonic() + limit
@@ -84,31 +91,50 @@ def rules_only() -> dict:
     return json.loads((ROOT / "pipelines" / "06-rules-only.json").read_text("utf-8"))
 
 
+def agent_review() -> dict:
+    return json.loads((ROOT / "pipelines" / "07-agent-review.json").read_text("utf-8"))
+
+
+def serve(runs_db: str, **settings) -> tuple[subprocess.Popen, str]:
+    """Start the backend on a free port; (process, base URL)."""
+    port = free_port()
+    env = {**os.environ,
+           "SF_TOKENS": f"{BASIC}:basic,{PRO}:pro,{OTHER}:pro",
+           "SF_PORT": str(port), "SF_HOST": "127.0.0.1",
+           "SF_ALLOW_ORIGIN": "https://editor.example",
+           "SF_MAX_RUNS_PER_CALLER": "2", "SF_MAX_ACTIVE_RUNS": "6",
+           "SF_RUNS_DB": runs_db, **settings}
+    server = subprocess.Popen(
+        [sys.executable, "main.py"], cwd=ROOT, env=env,
+        stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+    )
+    base = f"http://127.0.0.1:{port}"
+    for _ in range(200):
+        try:
+            urllib.request.urlopen(base + "/openapi.json", timeout=1)
+            return server, base
+        except (urllib.error.URLError, ConnectionError):
+            if server.poll() is not None:
+                raise RuntimeError(server.stdout.read())
+            time.sleep(0.05)
+    server.kill()
+    raise RuntimeError("the server did not come up")
+
+
+def shut(server: subprocess.Popen) -> None:
+    server.terminate()
+    try:
+        server.wait(10)
+    except subprocess.TimeoutExpired:  # pragma: no cover
+        server.kill()
+    server.stdout.close()
+
+
 class BackendOverHttpTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        port = free_port()
-        env = {**os.environ,
-               "SF_TOKENS": f"{BASIC}:basic,{PRO}:pro,{OTHER}:pro",
-               "SF_PORT": str(port), "SF_HOST": "127.0.0.1",
-               "SF_ALLOW_ORIGIN": "https://editor.example",
-               "SF_MAX_RUNS_PER_CALLER": "2", "SF_MAX_ACTIVE_RUNS": "6"}
-        cls.server = subprocess.Popen(
-            [sys.executable, "main.py"], cwd=ROOT, env=env,
-            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
-        )
-        cls.base = f"http://127.0.0.1:{port}"
-        for _ in range(200):
-            try:
-                urllib.request.urlopen(cls.base + "/openapi.json", timeout=1)
-                break
-            except (urllib.error.URLError, ConnectionError):
-                if cls.server.poll() is not None:
-                    raise RuntimeError(cls.server.stdout.read())
-                time.sleep(0.05)
-        else:
-            cls.server.kill()
-            raise RuntimeError("the server did not come up")
+        cls._folder = tempfile.TemporaryDirectory()
+        cls.server, cls.base = serve(str(Path(cls._folder.name) / "runs.db"))
         cls.basic = Client(cls.base, BASIC)
         cls.pro = Client(cls.base, PRO)
         cls.other = Client(cls.base, OTHER)
@@ -116,12 +142,8 @@ class BackendOverHttpTests(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        cls.server.terminate()
-        try:
-            cls.server.wait(10)
-        except subprocess.TimeoutExpired:  # pragma: no cover
-            cls.server.kill()
-        cls.server.stdout.close()
+        shut(cls.server)
+        cls._folder.cleanup()
 
     def start(self, client, mode="run", ticket="T-1001", pipeline=None, **extra):
         status, body, _ = client.post("/api/run", {
@@ -282,6 +304,67 @@ class BackendOverHttpTests(unittest.TestCase):
                 return state
             time.sleep(0.02)
         self.fail(f"run {run_id} never reached the state; last: {state}")
+
+    # ------------------------------------------------- a run that waits
+
+    def test_a_run_waits_for_the_agent_and_goes_on_with_the_answer(self):
+        status, body = self.start(self.basic, pipeline=agent_review())
+        self.assertEqual(status, 201)
+        run_id = body["id"]
+        first = self.basic.events(run_id, until="waiting")
+        self.assertEqual(first[-1]["type"], "waiting")
+        self.assertEqual(first[-1]["input"], "review")
+        _, state, _ = self.basic.get(f"/api/run/{run_id}")
+        self.assertEqual(state["status"], "waiting")
+
+        # another tenant cannot answer it; a wrong input type is a 409
+        status, _, _ = self.other.post(f"/api/run/{run_id}/input",
+                                       {"type": "review", "payload": {"verdict": "approve"}})
+        self.assertEqual(status, 404)
+        status, body, _ = self.basic.post(f"/api/run/{run_id}/input", {"type": "approval"})
+        self.assertEqual(status, 409)
+        self.assertIn("waits for 'review'", body["error"])
+
+        status, _, _ = self.basic.post(f"/api/run/{run_id}/input", {
+            "type": "review", "payload": {"verdict": "approve", "text": "Sorted, thanks!"}})
+        self.assertEqual(status, 200)
+        rest = self.basic.events_from(run_id, len(first))
+        self.assertEqual(rest[-1]["type"], "finished")
+        self.assertEqual(rest[-1]["artifacts"]["reply"], "Sorted, thanks!")
+
+        status, body, _ = self.basic.post(f"/api/run/{run_id}/input",
+                                          {"type": "review", "payload": {}})
+        self.assertEqual(status, 409)
+
+
+class RestartTests(unittest.TestCase):
+    """A run waiting when the server stops is waiting when it comes back."""
+
+    def test_the_answer_reaches_a_run_started_by_another_process(self):
+        with tempfile.TemporaryDirectory() as folder:
+            db = str(Path(folder) / "runs.db")
+            server, base = serve(db)
+            try:
+                client = Client(base, BASIC)
+                _, body, _ = client.post("/api/run", {
+                    "pipeline": agent_review(), "vars": {"ticket_id": "T-1001"}})
+                run_id = body["id"]
+                client.events(run_id, until="waiting")
+            finally:
+                shut(server)
+
+            server, base = serve(db)
+            try:
+                client = Client(base, BASIC)
+                _, state, _ = client.get(f"/api/run/{run_id}")
+                self.assertEqual(state["status"], "waiting")
+                status, _, _ = client.post(f"/api/run/{run_id}/input", {
+                    "type": "review", "payload": {"verdict": "take over"}})
+                self.assertEqual(status, 200)
+                events = client.events_from(run_id, 1)
+                self.assertEqual(events[-1]["result"], {"status": "escalated"})
+            finally:
+                shut(server)
 
 
 if __name__ == "__main__":

@@ -2,7 +2,8 @@
 
 Before a run: `/meta` (what this backend supports), `/stages` (stage specs)
 and `/secrets` (names of server-side secrets). During a run: `/run` to start
-one, then state, events (SSE), control commands and variable edits.
+one, then state, events (SSE), control commands and variable edits, and
+`/input` to answer a run waiting at a `wait` node.
 
 Answers depend on the caller's plan (see `app.auth`). `/meta` and `/stages`
 accept `?plan=` to show what another plan allows. A run always uses the plan
@@ -18,8 +19,8 @@ from fastapi.responses import StreamingResponse
 from app.auth import CallerId, CallerPlan, caller_plan, source_of
 from app.events import sse_lines
 from app.exceptions import ClientErrorRoute
-from app.runs import Run, RunLimitReached, RunManager
-from app.schemas import ControlRequest, RunRequest, VarsRequest
+from app.runs import Run, RunLimitReached, RunManager, RunNotWaiting
+from app.schemas import ControlRequest, InputRequest, RunRequest, VarsRequest
 from app.plans import known, plan_names, policy_for
 from app.secrets import env_secret_names
 
@@ -122,7 +123,7 @@ async def start_run(body: RunRequest, caller: CallerPlan, who: CallerId = None) 
             f"credentials are on '{caller}'",
         )
     try:
-        run = runs.start(body.model_dump(), policy_for(caller), owner=who)
+        run = runs.start(body.model_dump(), policy_for(caller), owner=who, plan=caller)
     except RunLimitReached as exc:
         raise HTTPException(429, str(exc)) from exc
     return {"id": run.id, "state": run.state()}
@@ -147,7 +148,22 @@ async def run_events(run: CurrentRun, start: FromEvent = 0) -> StreamingResponse
 
 @router.post("/run/{run_id}/control", summary="Step, resume, pause, stop")
 async def control_run(run: CurrentRun, body: ControlRequest) -> dict:
-    return runs.control(run, body.model_dump())
+    try:
+        return runs.control(run, body.model_dump())
+    except RunNotWaiting as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@router.post("/run/{run_id}/input", summary="Answer a run that waits")
+async def answer_run(run: CurrentRun, body: InputRequest) -> dict:
+    """Give a waiting run (status `waiting`, at a `wait` node) the input it
+    waits for. The run goes on from the store in a new thread; follow it on
+    `/events?from=N` with N the number of events seen so far. 409 if the run
+    is not waiting, or waits for another input type."""
+    try:
+        return runs.answer(run, body.type, body.payload)
+    except RunNotWaiting as exc:
+        raise HTTPException(409, str(exc)) from exc
 
 
 @router.post("/run/{run_id}/vars", summary="Write or drop frame variables")

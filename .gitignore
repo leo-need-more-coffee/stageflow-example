@@ -14,3 +14,7 @@ venv/
 
 # OS
 .DS_Store
+
+# Runs saved by the backend (SF_RUNS_DB)
+runs.db
+runs.db-*

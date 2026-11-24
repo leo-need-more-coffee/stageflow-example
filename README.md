@@ -2,8 +2,8 @@
 
 # StageFlow example: a support bot
 
-**A working StageFlow backend to point the editor at — six pipelines that grow
-from four nodes to the whole bot.**
+**A working StageFlow backend to point the editor at — seven pipelines that grow
+from four nodes to the whole bot, and one that waits a day for a person.**
 
 [![tests](https://github.com/leo-need-more-coffee/stageflow-example/actions/workflows/tests.yml/badge.svg)](https://github.com/leo-need-more-coffee/stageflow-example/actions/workflows/tests.yml)
 [![license](https://img.shields.io/badge/license-MIT-green)](LICENSE)
@@ -49,9 +49,9 @@ through once.
 
 ![The log of a run whose model road failed](docs/img/events.png)
 
-## The six pipelines
+## The seven pipelines
 
-The same bot at six sizes; each one adds exactly one idea, and between them
+The same bot at seven sizes; each one adds exactly one idea, and between them
 they use every node type the core has.
 
 | File | Nodes | What is new | Runs on |
@@ -62,12 +62,41 @@ they use every node type the core has.
 | `04-support-bot.json` | 16 + 5 | `try`/`except` down to keyword rules, `retry`, and a subpipeline that writes the reply | pro, full |
 | `05-batch-triage.json` | 6 | `map`: one region of the graph run once per ticket, in parallel, collecting the verdicts | pro, full |
 | `06-rules-only.json` | 12 | the whole bot with no model at all — the pipeline the `basic` plan is built around | every plan |
+| `07-agent-review.json` | 14 | `wait`: the draft waits for an agent to approve, edit or take it over — for a day, saved on the server | every plan |
 
 The last two exist to make the plans mean something. `06-rules-only` is what a
 tier without model access still gets: keywords decide the topic, the knowledge
 base answers, and anything it cannot answer goes to a person. `05-batch-triage`
 needs the `map` node, which `basic` does not have — open it on that plan and
 the editor greys the node out and says why, before anybody presses Run.
+
+## A run that waits for a person
+
+`07-agent-review.json` drafts a reply with the rules, then stops at a `wait`
+node until a support agent has read it:
+
+```bash
+POST /api/run/<id>/input   {"type": "review", "payload": {"verdict": "approve", "text": "edited reply"}}
+```
+
+`approve` sends it — the agent's text if they changed it, the draft if not;
+anything else hands the ticket to a person, and so does a day of silence.
+
+While it waits, the run is not in memory and not in a thread: it is a row in
+`runs.db` (`SF_RUNS_DB`), and its status is `waiting`. It takes no run slot,
+it survives a restart — the server brings waiting runs back when it starts —
+and a second answer to the same wait gets `409` instead of sending the reply
+twice. A loop in `main.py` looks for passed deadlines every
+`SF_DUE_CHECK_SECONDS`.
+
+Two things follow from the run being on disk. It is continued under the plan
+it started on, which the backend keeps next to it (`app/runs.py`, `Ledger`):
+the core's checkpoint holds the run, and who owns it is the host's business.
+And a pipeline with a `wait` node may not carry secrets: they would be in the
+saved frame, so the backend refuses such a run up front.
+
+Only pipelines with a `wait` touch the database; the other six run in memory
+as before.
 
 ## The stages
 
@@ -130,6 +159,8 @@ everywhere on the way back.
 | `SF_MAX_ACTIVE_RUNS` | how many runs may be going at once in the process (default `4`); one more is answered with 429 |
 | `SF_MAX_RUNS_PER_CALLER` | how many of those one credential may hold (default `2`); only with `SF_TOKENS` |
 | `SF_RUN_IDLE_SECONDS` | a step-by-step run waiting this long for a command is stopped, giving its place back (default `600`) |
+| `SF_RUNS_DB` | the SQLite file where runs that wait are kept (default `runs.db` next to `main.py`) |
+| `SF_DUE_CHECK_SECONDS` | how often waiting runs are checked for a passed deadline (default `60`) |
 | `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL` | read by the two model stages |
 
 `OPENAI_BASE_URL` points them at any OpenAI-compatible gateway, proxy or local
@@ -151,7 +182,7 @@ types may be composed, and how much a run may spend.
 | | `basic` | `pro` | `full` |
 |---|---|---|---|
 | stages | the seven rules-only ones, plus the core's plumbing | all | all |
-| node types | entry, stage, condition, switch, terminal | all | all |
+| node types | entry, stage, condition, switch, wait, terminal | all | all |
 | `seconds` / `steps` | 15 / 200 | 120 / 5 000 | — |
 | `tokens` / `llm_calls` | no model at all | 200 000 / 100 | — |
 | `kb_lookups` / `replies_sent` / `escalations` | 20 / 1 / 1 | 2 000 / 200 / 50 | — |
@@ -204,6 +235,7 @@ GET    /api/run/<id>           the state of the run
 GET    /api/run/<id>/events    the event stream (SSE), ?from=N — read on from the Nth
 POST   /api/run/<id>/control   {action: "step"|"resume"|"pause"|"stop"|"delay", count, delay}
 POST   /api/run/<id>/vars      {set: {...}, drop: [...]}
+POST   /api/run/<id>/input     {type, payload} — answer a run that is `waiting`; 409 if it is not
 ```
 
 Plus `/docs`, and the three folders the editor may ask for: `icons/`,
@@ -220,11 +252,12 @@ app/api.py              every endpoint the editor calls
 app/auth.py             who is calling, and therefore which plan a run is on
 app/plans.py            the plans, each one a Policy
 app/schemas.py          the bodies of the run API
-app/runs.py             a run: a real Session in its own thread, with the debugger
+app/runs.py             a run: a real Session in its own thread, with the debugger;
+                        runs that wait are saved to runs.db and continued from it
 app/events.py           the event log and the SSE stream out of it
 app/secrets.py          which secrets the server has, and masking them again
 app/stages/             the stages of the bot
-pipelines/, data/       the six pipelines and the prepared situations
+pipelines/, data/       the seven pipelines and the prepared situations
 ```
 
 ## After an edit
@@ -233,8 +266,9 @@ pipelines/, data/       the six pipelines and the prepared situations
 python check_pipelines.py
 ```
 
-Validates every pipeline the way the core does and runs the full one without a
-key, down both roads: an answered ticket and an escalated one.
+Validates every pipeline the way the core does, runs the full one without a
+key down both roads — an answered ticket and an escalated one — and takes the
+review pipeline through a wait and a restart.
 
 ## License
 

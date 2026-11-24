@@ -13,7 +13,9 @@ StageFlow core (``app/runs.py``), so the debugger shows actual behaviour.
 """
 from __future__ import annotations
 
+import asyncio
 import sys
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
@@ -23,7 +25,7 @@ from starlette.exceptions import HTTPException
 from starlette.middleware.cors import CORSMiddleware
 
 from app import config
-from app.api import router
+from app.api import router, runs
 from app.auth import AUTH_HEADER
 from app.exceptions import http_error, invalid_body
 from app.middleware import NoStore
@@ -32,10 +34,34 @@ from app.stages import LLM_IMPORT_ERROR
 if LLM_IMPORT_ERROR:  # pragma: no cover - depends on the environment
     print(f"LLM stages disabled ({LLM_IMPORT_ERROR}); install the SDK: pip install openai")
 
+
+async def wake_due_runs() -> None:
+    """Waiting runs whose deadline has passed take their `on_timeout` road.
+    Nobody sleeps on a deadline, so somebody has to look; here it is a loop."""
+    while True:
+        await asyncio.sleep(config.DUE_CHECK_SECONDS)
+        try:
+            await runs.wake_due()
+        except Exception as exc:  # noqa: BLE001 - keep looking next time
+            print(f"checking deadlines failed: {exc!r}")
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    # Runs that were waiting when the server stopped are waiting still.
+    found = await runs.recover()
+    if found:
+        print(f"{found} waiting run(s) recovered from {config.RUNS_DB}")
+    checker = asyncio.create_task(wake_due_runs())
+    yield
+    checker.cancel()
+
+
 app = FastAPI(
     title="StageFlow example backend",
     description="A support bot for the StageFlow editor: stage specs, secret names, runs.",
     version="1.0.0",
+    lifespan=lifespan,
 )
 app.add_middleware(NoStore)
 # The editor runs on another origin, so the browser needs CORS headers for

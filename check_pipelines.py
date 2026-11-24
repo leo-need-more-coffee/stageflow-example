@@ -8,7 +8,9 @@
 - a plan can be shown on request but a run uses the caller's own plan;
 - the plans work: `basic` runs its pipeline, refuses others, and its meters
   are charged and enforced;
-- a run is only visible to its owner, and the number of runs is limited.
+- a run is only visible to its owner, and the number of runs is limited;
+- the review pipeline waits for an agent, survives a restart of the run
+  manager, and goes on with the answer.
 """
 from __future__ import annotations
 
@@ -284,6 +286,50 @@ async def check_runs_belong_to_callers() -> list[str]:
     return problems
 
 
+async def check_a_run_waits_and_survives() -> list[str]:
+    """07-agent-review waits at `review`, is found again by a new run manager
+    (as after a restart), and sends the reply the agent approved."""
+    import tempfile
+    import time
+
+    from app.plans import policy_for
+    from app.runs import RunManager
+
+    def settled(run):
+        deadline = time.monotonic() + 10
+        while run.status == "running" or (run.thread and run.thread.is_alive()):
+            if time.monotonic() > deadline:
+                raise TimeoutError(run.status)
+            time.sleep(0.01)
+        return run
+
+    problems: list[str] = []
+    pipeline = json.loads((ROOT / "pipelines" / "07-agent-review.json").read_text("utf-8"))
+    with tempfile.TemporaryDirectory() as folder:
+        db = Path(folder) / "runs.db"
+        run = settled(RunManager(db).start(
+            {"pipeline": pipeline, "vars": {"ticket_id": "T-1001"}},
+            policy_for("basic"), owner="agent", plan="basic"))
+        if run.status != "waiting":
+            problems.append(f"07-agent-review did not wait for the agent: {run.status}")
+        else:
+            restarted = RunManager(db)
+            await restarted.recover()
+            again = restarted.get(run.id, owner="agent")
+            if again is None or again.status != "waiting":
+                problems.append("the waiting run was lost by a restart")
+            else:
+                restarted.answer(again, "review", {"verdict": "approve", "text": "Done!"})
+                await asyncio.to_thread(settled, again)
+                if (again.artifacts or {}).get("reply") != "Done!":
+                    problems.append(f"the approved reply was not sent: {again.result}")
+    for problem in problems:
+        print(f"  FAIL  {problem}")
+    if not problems:
+        print("  ok    07-agent-review waits, survives a restart, and sends what was approved")
+    return problems
+
+
 def main() -> int:
     print("the backend describes itself:")
     problems = asyncio.run(check_meta())
@@ -297,6 +343,8 @@ def main() -> int:
     problems += asyncio.run(check_runs_without_key())
     print("runs belong to whoever started them:")
     problems += asyncio.run(check_runs_belong_to_callers())
+    print("a run can wait for a person:")
+    problems += asyncio.run(check_a_run_waits_and_survives())
 
     if problems:
         print(f"\n{len(problems)} problem(s)")

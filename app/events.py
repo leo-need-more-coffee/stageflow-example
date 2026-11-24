@@ -55,6 +55,11 @@ class EventBus:
             self._items.append({**event, "index": len(self._items)})
             self._cond.notify_all()
 
+    def reopen(self) -> None:
+        """A waiting run goes on: its log continues where it stopped."""
+        with self._cond:
+            self._closed = False
+
     def close(self) -> None:
         with self._cond:
             self._closed = True
