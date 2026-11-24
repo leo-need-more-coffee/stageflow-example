@@ -1,18 +1,15 @@
-"""A support bot as a StageFlow backend for the StageFlow editor.
+"""A support bot served as a StageFlow backend for the StageFlow editor.
 
     python main.py [port]            # or: uvicorn main:app --reload
 
-The editor (github.com/leo-need-more-coffee/stageflow-ui) is pure static
-front-end: it holds no stage registry and executes nothing. Everything it
-needs it asks a backend for, over the URL the user types on the connection
-screen. This is such a backend — a support bot whose stages take a prepared
-ticket, look the answer up in a knowledge base and either write a reply or
-hand the ticket to a human.
+The editor (github.com/leo-need-more-coffee/stageflow-ui) is a static page:
+it has no stages and runs nothing itself. It gets stage specs from a backend
+and asks the backend to run pipelines. This is such a backend: a support bot
+that loads a ticket, searches a knowledge base, and either replies or hands
+the ticket to a person.
 
-What it answers is in ``app/api.py``, and ``/docs`` lists it; the pipelines
-are executed by the REAL core (``app/runs.py``), because a second
-implementation of the semantics in JavaScript would mean the debugger shows
-something other than what actually happens.
+Endpoints are in ``app/api.py`` (also listed at ``/docs``). Runs use the real
+StageFlow core (``app/runs.py``), so the debugger shows actual behaviour.
 """
 from __future__ import annotations
 
@@ -41,20 +38,16 @@ app = FastAPI(
     version="1.0.0",
 )
 app.add_middleware(NoStore)
-# The editor lives on another origin, so without these headers every fetch and
-# the SSE stream would be blocked by the browser before reaching us; the
-# middleware answers the preflight of a POST with a JSON body too.
+# The editor runs on another origin, so the browser needs CORS headers for
+# every request, the SSE stream and the preflight of JSON POSTs.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[config.ALLOW_ORIGIN],
     allow_methods=["GET", "POST", "OPTIONS"],
-    # the credential header too, and whichever one this deployment named:
-    # without it the browser's preflight refuses the request before it is sent
+    # Include the credential header, whatever this deployment calls it.
     allow_headers=["Content-Type", AUTH_HEADER],
-    # the hosted editor is served over https and this backend answers on
-    # 127.0.0.1, which Chrome calls a private-network request: it asks in a
-    # preflight first and, without this, refuses with "Disallowed CORS
-    # private-network" — which reaches the page as a plain network error
+    # The hosted editor (https) calling this backend on 127.0.0.1 is a
+    # "private network" request in Chrome; without this the preflight fails.
     allow_private_network=True,
     max_age=86400,
 )
@@ -65,15 +58,12 @@ app.include_router(router)
 
 @app.get("/", include_in_schema=False)
 async def index() -> RedirectResponse:
-    """Whoever typed the address into a browser instead of into the editor
-    wanted to see what it answers."""
+    """Opening the backend URL in a browser shows the API docs."""
     return RedirectResponse("/docs")
 
 
-# A stage names its icon by an absolute path (`/icons/ticket.svg`), which the
-# editor resolves against the backend URL — so the icons are served from here,
-# and the pipelines and the fixtures alongside them. Only those three folders:
-# the source of the backend is not the editor's business.
+# Stage specs refer to icons by absolute path (`/icons/ticket.svg`), resolved
+# against the backend URL. Only these folders are served, not the source.
 for name in config.PUBLIC_DIRS:
     app.mount(f"/{name}", StaticFiles(directory=config.ROOT / name), name=name)
 
@@ -85,7 +75,7 @@ def main() -> None:
     print(f"StageFlow example backend: http://{config.HOST}:{port}")
     print("Type that address on the connection screen of the editor.")
     print(f"What it answers: http://{config.HOST}:{port}/docs")
-    # access_log off: the event stream would otherwise flood the console
+    # No access log: the event stream would flood the console.
     uvicorn.run(app, host=config.HOST, port=port, log_level="warning", access_log=False)
 
 

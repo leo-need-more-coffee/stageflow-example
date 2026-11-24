@@ -1,32 +1,21 @@
-"""The two stages of the bot that actually call a language model.
+"""The two stages that call a language model: triage and reply.
 
-Everything else in this example is prepared data (see ``support.py``).
-These two are the live part: they read the ticket the way a person would —
-deciding what it is about and how angry it sounds — and write the reply.
+They use Chat Completions (`/v1/chat/completions`), which every
+OpenAI-compatible gateway, proxy and local stub implements; `base_url`
+selects one.
 
-Chat Completions rather than Responses: `/v1/chat/completions` is implemented
-by every OpenAI-compatible gateway, proxy and local stub, and the `base_url`
-argument points the stages at one. That is also how this example is tried
-without a real key (see the README).
+The key is the `api_key` argument, usually a secret variable from the
+editor, so only its name appears in the pipeline JSON. If it is empty, the
+SDK reads `OPENAI_API_KEY` from the environment.
 
-The key arrives as an ordinary `api_key` argument: in a pipeline that is a
-variable from the editor's secret store, so only the name is in the JSON. With
-the argument empty the SDK reads `OPENAI_API_KEY` from the environment and the
-key never passes through the pipeline at all.
+Errors are split into four classes so the graph can route on them:
+`LlmAuthError` (no key: fall back to rules), `LlmRateLimited` and
+`LlmUnavailable` (worth a `retry`), `LlmBadAnswer` (the answer did not match
+the schema).
 
-Four error classes, not one: in a graph they become roads. `LlmAuthError` means
-"no key — fall back to the rules", `LlmRateLimited` and `LlmUnavailable` are
-what a `retry` repeats, `LlmBadAnswer` means the model answered something the
-schema did not allow. A single bare `Exception` would not let such a graph be
-drawn.
-
-These are also the two stages in this example that cost anything, so they are
-the two that take part in the budget (`docs/limits.md` of the core). Both
-halves of it, because a model call needs both: `reserve:` in the spec is what
-a plan is checked against *before* the call — a request that cannot be paid
-for should not be sent — and `charge()` after it is what the provider says it
-actually came to. The estimate and the truth are rarely the same number, and
-the one that reaches the invoice is the second.
+These stages use both halves of the budget: `reserve` in the spec is checked
+before the call, and `charge()` afterwards records the actual usage reported
+by the provider.
 """
 from __future__ import annotations
 
@@ -38,8 +27,8 @@ import openai
 
 from stageflow import BaseStage, EventSpec, register_stage
 
-#: The default model. Gateways each have their own catalogue, so it is an
-#: argument of the node and an environment variable rather than a constant.
+#: Default model; overridable per node and via the environment, since each
+#: gateway has its own model names.
 DEFAULT_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 
 TOPICS = ["billing", "technical", "account", "product", "other"]
@@ -48,40 +37,37 @@ MOODS = ["calm", "annoyed", "angry"]
 
 
 class LlmAuthError(RuntimeError):
-    """There is no key, or it was not accepted."""
+    """No API key, or it was rejected."""
 
 
 class LlmRateLimited(RuntimeError):
-    """429: too often, or the quota ran out. A retry with a pause helps."""
+    """429: rate limit or quota. A retry with a delay may help."""
 
 
 class LlmUnavailable(RuntimeError):
-    """The API cannot be reached, or it answered 5xx. A retry helps too."""
+    """The API is unreachable or returned 5xx. A retry may help."""
 
 
 class LlmBadAnswer(RuntimeError):
-    """The model answered, but not with what was asked for."""
+    """The model's answer did not match what was asked for."""
 
 
 _clients: dict[tuple[object, str | None, str | None], openai.AsyncOpenAI] = {}
 
 
 def _client(api_key: str | None, base_url: str | None) -> openai.AsyncOpenAI:
-    """One client per (key, address) within one run: a pipeline of a dozen
-    nodes would otherwise open a dozen connection pools.
+    """A cached client per (key, base URL, event loop).
 
-    The running event loop is part of the key, because every run gets a thread
-    with a loop of its own (see ``app/runs.py``) and the SDK binds its
-    connection pool to the loop it was created in. Shared across runs, the
-    second one would answer `RuntimeError: Event loop is closed` in place of
-    whatever really went wrong — a real error hidden behind a plumbing one.
+    The loop is part of the key because each run has its own thread and loop
+    (see ``app/runs.py``) and the SDK binds its connection pool to a loop.
+    Sharing a client across runs would fail with "Event loop is closed".
     """
     loop = asyncio.get_running_loop()
     for stale in [k for k in _clients if k[0] is not loop and k[0].is_closed()]:
-        _clients.pop(stale, None)  # its run is over, and so is its loop
+        _clients.pop(stale, None)  # that run and its loop are gone
     key = (loop, api_key or None, base_url or None)
     if key not in _clients:
-        # retries are the node's business — on the graph they are visible
+        # No SDK retries: retries belong on the graph, where they are visible.
         kwargs: dict = {"max_retries": 0}
         if api_key:
             kwargs["api_key"] = api_key
@@ -102,17 +88,9 @@ def _resolve_key(args: dict) -> str | None:
 
 
 def _tokens_used(usage, messages: list[dict], answer: str) -> int:
-    """What the call came to, in tokens.
-
-    The provider's own count when there is one: that is the number an invoice
-    would be built from, and no estimate is allowed to argue with it.
-
-    Gateways that send no `usage` — and the older ones that ignore
-    `stream_options` — leave a choice between charging nothing and charging a
-    guess. Nothing would quietly turn a ceiling on tokens into a ceiling on
-    nothing, which is the failure mode worth avoiding, so it is four
-    characters to the token: wrong by a fifth, never by an order of magnitude.
-    """
+    """Tokens used by a call: the provider's `usage` if reported, otherwise
+    an estimate of four characters per token (so a token limit still works
+    with gateways that do not report usage)."""
     total = getattr(usage, "total_tokens", None)
     if total:
         return int(total)
@@ -122,15 +100,11 @@ def _tokens_used(usage, messages: list[dict], answer: str) -> int:
 
 async def _chat(stage: BaseStage, args: dict, messages: list[dict],
                 schema: dict | None = None, on_chunk=None) -> str:
-    """One call, all the error mapping, the streaming and the bill — in one place.
+    """Make one model call: error mapping, optional streaming and charging.
 
-    `schema` turns the answer into a JSON object of a known shape; `on_chunk`
-    receives the text as it arrives, so a stage can type it out instead of
-    waiting for the whole answer.
-
-    Whatever happens, a call that went out is charged for. A call that failed
-    still keeps the reservation its stage declared — the request left, and
-    refunding it by default would be the optimistic lie.
+    `schema` makes the answer a JSON object of that shape; `on_chunk`
+    receives text as it arrives. A call that was sent is always charged; a
+    failed call keeps its stage's reservation.
     """
     client = _client(_resolve_key(args), (args.get("base_url") or "").strip() or None)
     request: dict = {
@@ -151,8 +125,7 @@ async def _chat(stage: BaseStage, args: dict, messages: list[dict],
             usage = answer.usage
             pieces.append(answer.choices[0].message.content or "")
         else:
-            # a stream says nothing about what it cost unless asked: the usage
-            # arrives in a final chunk that carries no choices
+            # Ask for usage in the final stream chunk.
             stream = await client.chat.completions.create(
                 **request, stream=True, stream_options={"include_usage": True})
             async for chunk in stream:
@@ -179,8 +152,7 @@ async def _chat(stage: BaseStage, args: dict, messages: list[dict],
         raise LlmBadAnswer(f"HTTP {exc.status_code}: {exc}") from exc
 
     text = "".join(pieces).strip()
-    # charged before the empty-answer check: an answer that came back useless
-    # was paid for exactly like one that came back useful
+    # Charge before checking for an empty answer: it was paid for anyway.
     stage.charge(llm_calls=1, tokens=_tokens_used(usage, messages, text))
     if not text:
         raise LlmBadAnswer("the model returned an empty answer")
@@ -235,9 +207,8 @@ class LlmTriageStage(BaseStage):
     category = "support.triage"
     timeout = 60
 
-    #: The enums are not a hint but a guarantee: the graph routes on `topic`
-    #: with a `switch`, and a label that is "roughly right" would break the
-    #: routing silently.
+    #: Strict enums: the graph routes on `topic` with a `switch`, so values
+    #: must match exactly.
     SCHEMA = {
         "type": "object",
         "properties": {
@@ -328,9 +299,8 @@ class LlmReplyStage(BaseStage):
     async def run(self):
         args = self.get_arguments()
         name = str(args.get("name") or "there")
-        # the chunks go out as they arrive: the editor's debug panel shows the
-        # answer being written instead of a node that sits still for half a
-        # minute and then finishes
+        # Forward chunks as they arrive, so the debug panel shows the reply
+        # being written.
         reply = await _chat(self, args, [
             {"role": "system", "content":
                 "You are a support agent. Answer the customer using ONLY the "

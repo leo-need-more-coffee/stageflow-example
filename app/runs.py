@@ -1,15 +1,11 @@
-"""Running a pipeline with step debugging: one run = one debug session.
+"""Runs with step debugging: one run is one debug session.
 
-The editor does not execute pipelines itself, and should not: the execution
-semantics live in the StageFlow core (CEL, types, try/except, parallel), and a
-second implementation in JavaScript would drift — debugging would show
-something other than what actually happens. So the UI is just a client: the
-run happens in a real ``Session``, and the core debugger (``StepDebugger``)
-exposes the stop point, the frame and the ability to accept edits.
+Pipelines run in the real core (`Session` with a `StepDebugger`), not in the
+editor, so the debugger shows actual behaviour.
 
-Every run gets a thread with its own event loop: the HTTP handlers live in the
-server's, so commands go through the thread-safe methods of the debugger and
-events come back through :class:`app.events.EventBus`.
+Each run has its own thread and event loop. HTTP handlers run in the server's
+loop and use the debugger's thread-safe methods; events come back through
+`app.events.EventBus`.
 """
 from __future__ import annotations
 
@@ -25,16 +21,16 @@ from app import config
 from app.events import EventBus, jsonable, telemetry_to_dict
 from app.secrets import Masker, env_secret_names, env_secret_value
 
-MAX_RUNS = 8  # how many runs we keep in memory (debugging, not production)
+MAX_RUNS = 8  # finished runs kept in memory
 
 
 class RunLimitReached(Exception):
-    """Too many runs going at once — for the process, or for this caller."""
+    """Too many runs in progress, for the process or for this caller."""
 
 
 @dataclass
 class Run:
-    """One run: a session in its own thread plus the debugger."""
+    """One run: a session running in its own thread, with its debugger."""
 
     id: str
     session: Session
@@ -46,13 +42,13 @@ class Run:
     error: str | None = None
     started: float = field(default_factory=time.monotonic)
     thread: threading.Thread | None = None
-    mask: Any = None                 # scrubs secrets out of state and events
-    #: the credential that started it (a digest, see `app.auth.caller_id`);
-    #: None when this process tells nobody apart
+    mask: Any = None                 # hides secrets in state and events
+    #: Digest of the credential that started it (`app.auth.caller_id`), or
+    #: None without authentication.
     owner: str | None = None
-    #: the last time somebody drove it — started, stepped, edited
+    #: When it was last started, stepped or edited.
     touched: float = field(default_factory=time.monotonic)
-    #: stopped for sitting idle; no longer counted while its thread winds down
+    #: Stopped for being idle; not counted while its thread finishes.
     expired: bool = False
 
     @property
@@ -60,9 +56,8 @@ class Run:
         return self.status != "running"
 
     def state(self) -> dict:
-        # only the content of the run is masked — frame, result, artifacts:
-        # the bookkeeping fields of the state must not fall under a secret
-        # name, even if someone called their key `status`
+        # Mask only the run's data (frame, result, artifacts), never the
+        # bookkeeping fields, even if a secret is named `status`.
         mask = self.mask or (lambda value, key=None: value)
         debug = dict(self.debugger.state)
         if "vars" in debug:
@@ -74,11 +69,9 @@ class Run:
             "artifacts": mask(self.artifacts),
             "error": self.error,
             "events": self.bus.size,
-            # what the run has spent so far, against what it was allowed:
-            # a client showing "12 of 100" needs both halves, and a run that
-            # stopped on a ceiling needs to be able to say which one. The
-            # gauges are named as the report names them — `peak_depth` — so
-            # that a client can pair the two without knowing the difference
+            # Spent meters next to their limits, so a client can show "12 of
+            # 100" and tell which limit stopped a run. Gauge limits use the
+            # report's `peak_*` names.
             "meters": self.session.budget.report(),
             "limits": {
                 **self.session.budget.limits.counters,
@@ -90,24 +83,26 @@ class Run:
 
 
 class RunManager:
-    """Keeps the runs and creates new ones. One process — one manager."""
+    """Creates and keeps the runs. One per process."""
 
     def __init__(self) -> None:
         self._runs: dict[str, Run] = {}
         self._lock = threading.Lock()
         self._counter = 0
 
-    # -------------------------------------------------------------- create
+    # --------------------------------------------------------------- create
 
     def start(self, payload: dict, policy: Policy, owner: str | None = None) -> Run:
-        """@param policy what the CALLER may do — resolved from the request in
-        `app/api.py`, never from the payload. A pipeline that asks for more
-        than the policy allows is refused here, before a thread is started.
-        @param owner who the run belongs to; only they may see and drive it.
-        @raises RunLimitReached when too many runs are going already."""
+        """Start a run.
+
+        `policy` is the caller's, resolved from the request in `app/api.py`,
+        never from the payload. `owner` is the caller id; only that caller can
+        see and control the run. Raises RunLimitReached when too many runs are
+        in progress.
+        """
         pipeline = Pipeline.from_dict(payload.get("pipeline") or {})
-        # description errors — and anything the plan refuses — answer right
-        # away, from the request, rather than from a thread minutes later
+        # Validation and policy errors are reported in the response, before
+        # a thread is started.
         pipeline.validate(policy)
 
         mode = "step" if payload.get("mode") == "step" else "run"
@@ -127,8 +122,8 @@ class RunManager:
 
     def _create_locked(self, run_id, pipeline, policy, mode, delay,
                        start_vars, mask, owner) -> Run:
-        """Made under the same lock as the count, so that two requests at
-        once cannot both see room for one more."""
+        """Create the run. Called under the same lock as the limit check, so
+        two concurrent requests cannot both take the last slot."""
         bus = EventBus(mask=mask)
         debugger = StepDebugger(mode=mode, delay=delay, on_event=bus.push)
         session = Session(
@@ -146,15 +141,15 @@ class RunManager:
         return run
 
     def get(self, run_id: str, owner: str | None = None) -> Run | None:
-        """The run, if it is this caller's. Somebody else's run is answered
-        exactly like one that does not exist: its id says nothing either way."""
+        """The run if it belongs to `owner`; otherwise None, as if it did not
+        exist."""
         with self._lock:
             run = self._runs.get(run_id)
         if run is None or run.owner != owner:
             return None
         return run
 
-    # -------------------------------------------------------------- limits
+    # --------------------------------------------------------------- limits
 
     def _active_locked(self) -> list[Run]:
         return [r for r in self._runs.values() if not r.done and not r.expired]
@@ -175,32 +170,28 @@ class RunManager:
                 )
 
     def _expire_idle_locked(self) -> None:
-        """Stop the step-by-step runs nobody has driven for a while.
-
-        Checked when a run is about to start, which is the only moment their
-        place in the limits matters — no timer thread needed for it.
-        """
+        """Stop step-by-step runs that have had no command for too long.
+        Checked when a run is about to start, so no timer thread is needed."""
         now = time.monotonic()
         for run in self._active_locked():
             if run.debugger.waiting and now - run.touched > config.RUN_IDLE_SECONDS:
                 run.expired = True
                 run.session.stop()
-                run.debugger.resume()  # release the step wait, or the stop never lands
+                run.debugger.resume()  # wake the step wait so the stop takes effect
 
     @staticmethod
     def _starting_frame(payload: dict) -> tuple[dict, Masker | None]:
-        """The variables a run starts with, and what to hide on the way back.
+        """The starting variables of a run and a masker for its output.
 
-        Values from the server environment are substituted here and never
-        reach the browser at all — the page sends names only. Local secrets
-        (typed into the editor) arrive as ordinary starting variables; the
-        server does not store them, but knows they are secret and scrubs them
-        out of the events.
+        Server-side secrets are substituted here and never sent to the
+        browser (the client sends their names). Secrets typed in the editor
+        arrive as ordinary variables; they are not stored, only masked in the
+        events.
         """
         secrets = payload.get("secrets") or {}
         start_vars = dict(payload.get("vars") or {})
-        # only names the server itself declared a secret: a request must not be
-        # able to read an arbitrary environment variable back out of the frame
+        # Only secrets the server declared: a request must not be able to read
+        # arbitrary environment variables.
         allowed = set(env_secret_names())
         for name in secrets.get("env") or []:
             value = env_secret_value(str(name)) if str(name) in allowed else None
@@ -215,13 +206,13 @@ class RunManager:
         return start_vars, masker or None
 
     def _evict_locked(self) -> None:
-        """Keep only the latest runs: debug sessions pile up quickly."""
+        """Drop the oldest finished runs to keep at most MAX_RUNS in memory."""
         finished = [r for r in self._runs.values() if r.done]
         finished.sort(key=lambda r: r.started)
         while len(self._runs) - len(finished) + 1 > MAX_RUNS and finished:
             self._runs.pop(finished.pop(0).id, None)
 
-    # ------------------------------------------------------------- control
+    # -------------------------------------------------------------- control
 
     def control(self, run: Run, payload: dict) -> dict:
         run.touched = time.monotonic()
@@ -234,7 +225,7 @@ class RunManager:
             run.debugger.pause()
         elif action == "stop":
             run.session.stop()
-            run.debugger.resume()  # release the step wait, or the stop never lands
+            run.debugger.resume()  # wake the step wait so the stop takes effect
         elif action == "delay":
             run.debugger.set_delay(float(payload.get("delay") or 0))
         else:
@@ -250,11 +241,11 @@ class RunManager:
         run.debugger.set_vars(values, drop)
         return run.state()
 
-    # ------------------------------------------------------------- the run
+    # ------------------------------------------------------------------ run
 
     @staticmethod
     def _execute(run: Run) -> None:
-        """The body of the run thread: its own event loop for the whole run."""
+        """The run thread: one event loop for the whole run."""
         try:
             result = asyncio.run(run.session.run())
             run.result = result.result

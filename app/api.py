@@ -1,15 +1,12 @@
-"""What the editor asks the backend for.
+"""The HTTP API the editor uses.
 
-Before a run: what this backend can do at all (``/meta``), the stages it may
-put on the canvas (``/stages``) and the names of the keys a run can be given
-(``/secrets``). During one: a run it starts and then drives a node at a time
-(``/run…``), reading the event stream as it goes.
+Before a run: `/meta` (what this backend supports), `/stages` (stage specs)
+and `/secrets` (names of server-side secrets). During a run: `/run` to start
+one, then state, events (SSE), control commands and variable edits.
 
-Everything here is answered *for a caller* — see :mod:`app.auth`. The two
-questions before a run take an optional ``?plan=`` and answer about that plan
-whether or not the caller is on it, because a client has to be able to show
-what a plan would allow. A run takes no such parameter: it goes on the plan
-the credential resolves to, and says so if the two disagree.
+Answers depend on the caller's plan (see `app.auth`). `/meta` and `/stages`
+accept `?plan=` to show what another plan allows. A run always uses the plan
+of the caller's credential.
 """
 from __future__ import annotations
 
@@ -26,21 +23,17 @@ from app.schemas import ControlRequest, RunRequest, VarsRequest
 from app.plans import known, plan_names, policy_for
 from app.secrets import env_secret_names
 
-# The credential is demanded on every endpoint rather than on the run alone,
-# and a run answers only to the credential that started it (`current_run`):
-# a stranger who may step and stop it, or read its frame, is not meaningfully
-# less of a stranger for holding a token of their own. With no
-# tokens configured the dependency lets everyone through (`app/auth.py`).
+# Every endpoint requires a credential (when tokens are configured), and a
+# run is only visible to the credential that started it (`current_run`).
 router = APIRouter(prefix="/api", route_class=ClientErrorRoute,
                    dependencies=[Depends(caller_plan)])
 
-#: One process — one manager (see :class:`app.runs.RunManager`).
+#: One run manager per process.
 runs = RunManager()
 
 
 def current_run(run_id: str, caller: CallerId) -> Run:
-    # a run belongs to the credential that started it: another tenant's is
-    # "not found", the same answer as one that never existed
+    # Another caller's run is reported as not found.
     run = runs.get(run_id, owner=caller)
     if run is None:
         raise HTTPException(404, "run not found")
@@ -49,41 +42,28 @@ def current_run(run_id: str, caller: CallerId) -> Run:
 
 CurrentRun = Annotated[Run, Depends(current_run)]
 FromEvent = Annotated[int, Query(alias="from", ge=0, description="read on from the Nth event")]
-#: "Answer about this plan" — a request to be *shown* something, not a claim
-#: to be on it. Unverified on purpose; what a run may do is decided elsewhere.
+#: `?plan=`: show another plan's allowance. Not checked against the caller,
+#: since it only affects what is shown, not what runs.
 ShownPlan = Annotated[
     str | None,
     Query(alias="plan", description="answer about this plan instead of the caller's"),
 ]
 
 
-#: The version of the HTTP contract of this backend — the endpoints and the
-#: shapes on this page, not the version of the core behind it. It goes up only
-#: when a client that speaks the old one would break; adding an endpoint or a
-#: field does not move it.
+#: Version of this backend's HTTP API (not of the core). Bumped only for
+#: breaking changes; new endpoints or fields do not change it.
 API_VERSION = 1
 
 
 @router.get("/meta", summary="What this backend is and what the caller may use")
 async def meta(caller: CallerPlan, plan: ShownPlan = None) -> dict:
-    """What a client needs before it draws anything.
+    """What the client needs before drawing: supported node types, stages,
+    locales and limits for the caller's plan (or for `?plan=`).
 
-    An editor is built against one version of the core and then pointed here.
-    Rather than have it keep a table of which release grew which node type, the
-    core is asked directly — ``node_types`` is its registry, so a name absent
-    from it is exactly a name a run would reject.
-
-    Narrowed by a plan (``app/plans.py``), because an editor needs to know
-    what may be drawn. Whether a node type is missing because the core is
-    older or because the plan is narrower is not a distinction it has to make
-    — which is why ``plan_source`` is here: the client says *why* something is
-    greyed out, and says it without guessing.
-
-    By default the plan is the caller's own. ``?plan=basic`` answers about
-    that one instead, for anyone, unverified: a client showing "what would I
-    lose on the cheaper tier" is asking a question, not claiming a tier.
-    ``plans`` is the list to offer, so that the names are not hard-coded into
-    a client that cannot know them.
+    `node_types` comes from the core's registry narrowed by the plan, so the
+    client can grey out what it cannot use. `plan_source` says whether the
+    answer is for the caller's own plan or a requested one. `plans` lists the
+    plans a client may ask about.
     """
     from stageflow import capabilities
 
@@ -97,7 +77,7 @@ async def meta(caller: CallerPlan, plan: ShownPlan = None) -> dict:
 
 
 def _limits_of(policy) -> dict:
-    """The numbers, so a client can warn before a run instead of after."""
+    """The plan's limits, so a client can warn before a run."""
     limits = policy.limits
     return {
         "counters": dict(limits.counters),
@@ -109,15 +89,8 @@ def _limits_of(policy) -> dict:
 
 @router.get("/stages", summary="Specs of the stages the caller may use")
 async def stages(caller: CallerPlan, plan: ShownPlan = None) -> dict:
-    """Only what the plan allows.
-
-    Sending the specs of a stage the plan forbids would have the editor draw
-    it in the palette and the run refuse it — the mismatch the whole policy
-    exists to avoid, reintroduced one endpoint later.
-
-    ``?plan=`` as in ``/meta``, and for the same reason: a palette shown for
-    a plan has to come from the same answer as the limits shown beside it.
-    """
+    """Specs of the stages the plan allows (`?plan=` as in `/meta`), so the
+    palette only offers what a run would accept."""
     from stageflow import get_stages
 
     if plan is not None and not known(plan):
@@ -130,19 +103,17 @@ async def stages(caller: CallerPlan, plan: ShownPlan = None) -> dict:
 
 @router.get("/secrets", summary="NAMES of the secrets in the environment")
 async def secrets() -> dict:
-    # names ONLY: the values stay on the server and are substituted into the
-    # starting frame of a run (see app/secrets.py)
+    # Names only; values are substituted on the server (see app/secrets.py).
     return {"names": env_secret_names(), "source": "env"}
 
 
 @router.post("/run", status_code=201, summary="Start a run")
 async def start_run(body: RunRequest, caller: CallerPlan, who: CallerId = None) -> dict:
-    """Starts a run on the caller's plan — and only on it.
+    """Start a run on the caller's plan.
 
-    ``body.plan`` is not a choice: it is what the client *drew against*, and
-    saying it lets the disagreement be named. Without it a client that had
-    been previewing a wider plan would get a pile of validation errors about
-    individual stages and no hint that the plan is the reason.
+    `body.plan` is the plan the client drew against, not a choice: if it
+    differs from the caller's plan, the run is refused with a message that
+    names both plans.
     """
     if body.plan is not None and body.plan != caller:
         raise HTTPException(
@@ -164,14 +135,12 @@ async def run_state(run: CurrentRun) -> dict:
 
 @router.get("/run/{run_id}/events", summary="Event stream of a run (SSE)")
 async def run_events(run: CurrentRun, start: FromEvent = 0) -> StreamingResponse:
-    """The connection lives until the run ends or the client goes away.
-    ``?from=N`` reads the log on from the Nth event: a subscriber that broke
-    off does not lose the beginning, and in debugging the beginning is the
-    interesting part."""
+    """The run's events as SSE, until the run ends or the client disconnects.
+    `?from=N` resumes the stream from event N."""
     return StreamingResponse(
         sse_lines(run.bus, start),
         media_type="text/event-stream; charset=utf-8",
-        # a proxy that buffers would hold the tokens back until the run ends
+        # Tell proxies not to buffer the stream.
         headers={"X-Accel-Buffering": "no"},
     )
 

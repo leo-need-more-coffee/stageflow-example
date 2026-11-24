@@ -1,9 +1,7 @@
-"""The support bot backend: the FastAPI app is assembled in ``main.py``.
+"""The support bot backend (the FastAPI app is built in ``main.py``).
 
-The one thing that happens on importing the package is finding the StageFlow
-core, and it has to happen before anything imports it: an installed package
-(``pip install stageflow-framework``) wins, a sibling checkout is the fallback,
-so two repositories cloned side by side run without installing anything.
+Importing this package locates the StageFlow core: the installed package if
+there is one, otherwise a sibling ``../stageflow`` checkout.
 """
 from __future__ import annotations
 

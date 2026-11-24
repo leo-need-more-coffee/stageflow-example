@@ -1,26 +1,14 @@
-"""Checks the pipelines in ``pipelines/`` the way the core would.
+"""Checks for the shipped pipelines and the backend's main promises.
 
     python check_pipelines.py
 
-Two things, and both of them are what breaks in a demo nobody runs:
-
-  * every pipeline is valid — the ids resolve, the stages exist, the arguments
-    the stages declared are there;
-  * the full one really runs without an API key, taking the `except` road to
-    the keyword rules. That is the promise the README makes, and it is the
-    easiest one to break by editing a stage;
-  * ``/api/meta`` answers, and answers about the core that is actually
-    installed — that is what an editor decides by;
-  * the plan a client may *ask to be shown* and the plan a run is *executed*
-    under stay two different things — the whole point of `app/auth.py`, and a
-    thing one refactor of the dependency graph would quietly undo;
-  * the plans are real: the cheap one runs the pipeline it was built around,
-    refuses the one it is not meant to have, and its meters actually move. A
-    plan whose ceilings nothing counts against is decoration, and decoration
-    passes every other check in this file;
-  * a run answers only to the credential that started it, and nobody can
-    start runs without end — a step-by-step run left alone gives its place
-    back. Both are about a backend serving more than one person.
+- every pipeline validates;
+- the full pipeline runs without an API key, falling back to keyword rules;
+- `/api/meta` reports the installed core;
+- a plan can be shown on request but a run uses the caller's own plan;
+- the plans work: `basic` runs its pipeline, refuses others, and its meters
+  are charged and enforced;
+- a run is only visible to its owner, and the number of runs is limited.
 """
 from __future__ import annotations
 
@@ -39,13 +27,8 @@ from stageflow import Context, Pipeline, Session  # noqa: E402
 
 
 def check_valid() -> list[str]:
-    """Every shipped pipeline is well formed, and runs on the open plan.
-
-    The open plan, because that is what a caller gets here with no
-    credentials — the state the README tells people to start in. A narrower
-    plan is *supposed* to refuse some of these; that is what a plan is, and
-    it is checked by hand in `check_plan_is_not_a_claim`.
-    """
+    """Every shipped pipeline is valid on the open plan (what a caller gets
+    without credentials). Narrower plans are checked separately."""
     from app.plans import OPEN_PLAN, policy_for
 
     policy = policy_for(OPEN_PLAN)
@@ -79,15 +62,8 @@ async def check_runs_without_key() -> list[str]:
 
 
 async def check_meta() -> list[str]:
-    """The answer an editor plans by, checked against this process.
-
-    Two promises live here and both are cheap to break in a way nothing else
-    notices. The endpoint would still return 200 with a stale hand-written
-    list, and the editor would go on offering a node this backend cannot run;
-    and /api/stages would still return 200 with stages the plan forbids, so
-    the editor would draw them and the run would refuse them — the very
-    mismatch the policy exists to remove, one endpoint later.
-    """
+    """`/api/meta` reports the installed core's node types, and `/api/stages`
+    only lists stages the plan allows."""
     from stageflow import capabilities, get_stages
     from stageflow.core.nodes import get_node_types
 
@@ -122,13 +98,7 @@ async def check_meta() -> list[str]:
 
 
 async def check_plan_is_not_a_claim() -> list[str]:
-    """Asking to be shown a plan is free; being run on one is not.
-
-    The thing worth a check is the asymmetry, because it is invisible in the
-    code that breaks it. Wire ``?plan=`` into the run — one line, and an
-    obvious-looking one — and every ceiling in this repository becomes a
-    query parameter.
-    """
+    """`?plan=` changes what is shown, never what a run is allowed to do."""
     from fastapi import HTTPException
     from starlette.requests import Request
 
@@ -143,7 +113,7 @@ async def check_plan_is_not_a_claim() -> list[str]:
 
     problems = []
 
-    # 1. a narrow caller may look at a wide plan, and is told it is a what-if
+    # 1. A caller may look at a wider plan and is told it is a what-if.
     shown = await meta(caller="basic", plan="pro")
     if shown["plan"] != "pro" or shown["plan_source"] != "query":
         problems.append(f"/api/meta?plan=pro did not answer about pro: {shown['plan']}")
@@ -153,7 +123,7 @@ async def check_plan_is_not_a_claim() -> list[str]:
     if own["plan"] != "basic" or own["plan_source"] == "query":
         problems.append("/api/meta without ?plan= did not answer about the caller")
 
-    # 2. …and cannot run on it
+    # 2. ...but cannot run on it.
     try:
         await start_run(RunRequest(plan="pro", pipeline={}), caller="basic")
         problems.append("a graph drawn for 'pro' was accepted from a 'basic' caller")
@@ -161,7 +131,7 @@ async def check_plan_is_not_a_claim() -> list[str]:
         if exc.status_code != 403:
             problems.append(f"the plan mismatch answered {exc.status_code}, not 403")
 
-    # 3. the credential decides, and only it
+    # 3. The credential decides the plan.
     tokens, enabled = auth.TOKENS, auth.ENABLED
     auth.TOKENS, auth.ENABLED = {"tok-pro": "pro"}, True
     try:
@@ -186,15 +156,9 @@ async def check_plan_is_not_a_claim() -> list[str]:
 
 
 async def check_plans_are_real() -> list[str]:
-    """A plan has to do something, or it is a table nobody consults.
-
-    Three things, and each of them has been quietly wrong at some point in
-    this repository: a plan that named a stage which does not exist (so it
-    allowed six and got five), a plan that could run none of the shipped
-    pipelines (so it looked broken rather than cheap), and ceilings on meters
-    that no stage ever charged (so they were numbers that could not be
-    reached).
-    """
+    """The plans have an effect: every stage they name exists, `basic` runs
+    its own pipeline and refuses one it lacks, and its meters are charged
+    and enforced."""
     from stageflow import Context, Policy, Session, get_stages
     from stageflow.exceptions import PipelineValidationError
 
@@ -202,7 +166,7 @@ async def check_plans_are_real() -> list[str]:
 
     problems = []
 
-    # 1. every name in a plan is a stage that exists
+    # 1. Every stage named in a plan exists.
     registered = set(get_stages())
     for name, policy in PLANS.items():
         missing = sorted((policy.stages or set()) - registered)
@@ -213,7 +177,7 @@ async def check_plans_are_real() -> list[str]:
         path = ROOT / "pipelines" / filename
         return Pipeline.from_dict(json.loads(path.read_text(encoding="utf-8")))
 
-    # 2. the cheap plan runs its own pipeline, and refuses the one it lacks
+    # 2. `basic` runs its own pipeline and refuses the one needing `map`.
     basic = policy_for("basic")
     try:
         load("06-rules-only.json").validate(basic)
@@ -225,7 +189,7 @@ async def check_plans_are_real() -> list[str]:
     except PipelineValidationError:
         pass
 
-    # 3. the meters move, and a ceiling on them stops a run
+    # 3. Meters are charged, and a ceiling stops a run.
     session = Session(id="plan-basic", pipeline=load("06-rules-only.json"),
                       context=Context(vars={"ticket_id": "T-1001"}), policy=basic)
     result = await session.run()
@@ -253,7 +217,7 @@ async def check_plans_are_real() -> list[str]:
 
 
 async def check_runs_belong_to_callers() -> list[str]:
-    """Another tenant's run is not found, and the limits on runs hold."""
+    """Another tenant's run is not found, and the run limits hold."""
     from fastapi import HTTPException
 
     from app import api, auth, config
@@ -295,7 +259,7 @@ async def check_runs_belong_to_callers() -> list[str]:
         await api.start_run(body, caller="basic", who=bob)
         await refused(bob, "a fourth run for the process")
 
-        # every one of them is waiting for a step; left alone, they give way
+        # All runs are waiting for a step; idle ones must give way.
         for _ in range(100):
             if all(r.debugger.waiting for r in api.runs._active_locked()):
                 break

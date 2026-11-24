@@ -1,4 +1,4 @@
-"""Middleware: one header, on every answer."""
+"""Middleware that adds `Cache-Control: no-store` to every response."""
 from __future__ import annotations
 
 from typing import Any
@@ -7,14 +7,11 @@ from starlette.datastructures import MutableHeaders
 
 
 class NoStore:
-    """``Cache-Control: no-store`` on every answer, the static files included.
+    """Adds `Cache-Control: no-store` to every response, static files
+    included, so edited pipelines and fixtures are never served from cache.
 
-    An edited pipeline or fixture must never be served from the browser cache:
-    the files are read on every run, and that is the point of them.
-
-    A plain ASGI middleware and not ``@app.middleware("http")`` on purpose:
-    the latter pumps the response body through a queue, and the event stream
-    has to reach the browser chunk by chunk — a token at a time.
+    Plain ASGI rather than `@app.middleware("http")`, which buffers the body
+    and would break the event stream.
     """
 
     def __init__(self, app: Any) -> None:

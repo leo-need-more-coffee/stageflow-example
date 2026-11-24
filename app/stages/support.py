@@ -1,29 +1,17 @@
-"""The stages of a support bot: tickets, the knowledge base, replies.
+"""Stages of the support bot: tickets, customers, the knowledge base, replies.
 
-Everything these stages work with is prepared data in ``data/``: the tickets
-(``tickets.json``), the customers (``customers.json``) and the knowledge base
-(``knowledge.json``). Nothing here goes to the network, nothing here is random
-— a pipeline built on them gives the same answer on every run, which is what a
-demo needs: a debugger showing a different graph on every step is impossible to
-talk about.
+All data comes from ``data/`` (tickets, customers, knowledge base). Nothing
+uses the network or randomness, so every run of a pipeline gives the same
+result, which makes the demo easy to debug and explain.
 
-The stages are deliberately small and single-purpose. That is not neatness for
-its own sake: a node on the canvas is a stage, and a stage that both looks
-something up and decides what to do with it turns into a node whose meaning has
-to be guessed from its name. The decisions live in the graph — `condition`,
-`switch`, `try` — where they can be seen.
+Each stage does one thing. Decisions are made in the graph (`condition`,
+`switch`, `try`), where they are visible, not inside stages.
 
-The one thing that does go to a live service is classification, and that lives
-apart, in ``llm.py``.
+The model-based stages are in ``llm.py``.
 
-Most of these are free, and say so by declaring nothing: a stage that reads a
-JSON file costs the platform nothing worth counting, and a meter nobody needs
-is a number in the way. Three of them do charge, and they charge **units of
-this business rather than seconds or bytes** — `kb_lookups`, `replies_sent`,
-`escalations`. The core fixes none of those names; a host counts what is
-scarce for it, and what a unit is worth is a price list that changes without
-any code changing. That is the half of the budget worth showing here: the
-expensive, model-shaped half lives in ``llm.py``.
+Most stages are free. Three charge business units instead of seconds or
+bytes: `kb_lookups`, `replies_sent`, `escalations`. Meter names are up to the
+host; pricing them is a separate concern.
 """
 from __future__ import annotations
 
@@ -35,22 +23,20 @@ from app.config import DATA_DIR
 
 
 class TicketNotFound(LookupError):
-    """There is no such ticket in the fixtures."""
+    """No such ticket in the fixtures."""
 
 
 class CustomerNotFound(LookupError):
-    """There is no such customer in the fixtures."""
+    """No such customer in the fixtures."""
 
 
 def _load(name: str) -> dict:
-    """The fixtures are read on every call on purpose: editing a JSON file and
-    running the pipeline again is the fastest way to try another situation, and
-    a cache would mean restarting the server for it."""
+    """Read a fixture file. Not cached, so edits take effect without a restart."""
     with open(DATA_DIR / name, encoding="utf-8") as fh:
         return json.load(fh)
 
 
-# ----------------------------------------------------------------- loading
+# ------------------------------------------------------------------ loading
 
 @register_stage("LoadTicketStage")
 class LoadTicketStage(BaseStage):
@@ -141,7 +127,7 @@ class LoadCustomerStage(BaseStage):
         })
 
 
-# ------------------------------------------------------------- triage by rules
+# ---------------------------------------------------------- triage by rules
 
 @register_stage("ClassifyByRulesStage")
 class ClassifyByRulesStage(BaseStage):
@@ -171,8 +157,8 @@ class ClassifyByRulesStage(BaseStage):
 
     category = "support.triage"
 
-    #: Keywords per topic. Crude on purpose: this is the road a graph takes when
-    #: the model is unavailable, and it has to be predictable rather than clever.
+    #: Keywords per topic. Simple on purpose: this is the fallback when the
+    #: model is unavailable, and it should be predictable.
     TOPICS = {
         "billing": ["charge", "charged", "refund", "invoice", "payment", "price", "subscription"],
         "technical": ["error", "429", "loading", "spinning", "stuck", "broken", "crash",
@@ -184,8 +170,7 @@ class ClassifyByRulesStage(BaseStage):
 
     async def run(self):
         args = self.get_arguments()
-        # the subject is searched too: "Dashboard stuck on loading" says more
-        # than the message that follows it
+        # Search the subject as well as the message.
         text = f"{args.get('subject') or ''} {args.get('text') or ''}".lower()
         scores = {
             topic: [word for word in words if word in text]
@@ -200,7 +185,7 @@ class ClassifyByRulesStage(BaseStage):
         })
 
 
-# ---------------------------------------------------------- knowledge base
+# ----------------------------------------------------------- knowledge base
 
 @register_stage("SearchKnowledgeStage")
 class SearchKnowledgeStage(BaseStage):
@@ -240,9 +225,8 @@ class SearchKnowledgeStage(BaseStage):
 
         base = _load("knowledge.json")
         pool = [a for a in base["articles"] if not topic or a["topic"] == topic]
-        # a hit is a tag occurring in the message; the article with the most
-        # hits wins, and zero hits means "nothing matched" rather than "the
-        # first one will do"
+        # An article scores one hit per tag found in the message; the best
+        # wins, and zero hits means no match.
         ranked = sorted(
             ((sum(tag in text for tag in a["tags"]), a) for a in pool),
             key=lambda pair: pair[0],
@@ -251,9 +235,7 @@ class SearchKnowledgeStage(BaseStage):
         hits, article = ranked[0] if ranked else (0, base["fallback"])
         if not hits:
             article = base["fallback"]
-        # charged rather than reserved: a lookup costs the same whatever it is
-        # given, and there is nothing here expensive enough to gate a run on
-        # before it happens
+        # Charged, not reserved: a lookup always costs the same and is cheap.
         self.charge(kb_lookups=1)
         self.set_outputs({
             "found": bool(hits),
@@ -302,7 +284,7 @@ class RenderReplyStage(BaseStage):
             head, _, tail = rest.partition("{")
             name, closed, tail = tail.partition("}")
             out.append(head)
-            if not closed:  # a lone brace is just a brace
+            if not closed:  # a lone brace stays as is
                 out.append("{" + name)
                 rest = ""
                 break
@@ -359,10 +341,8 @@ class SendReplyStage(BaseStage):
         ticket_id = str(args.get("ticket_id") or "")
         channel = str(args.get("channel") or "email")
 
-        # The reply is typed out word by word rather than handed over whole.
-        # The `stream: true` payload is a contract with the editor: its debug
-        # panel shows the stream of any node that sends chunks like this, and
-        # knows nothing about support bots or language models.
+        # Send the reply word by word. Chunks with `stream: true` are shown as
+        # a stream in the editor's debug panel, for any stage.
         for word in reply.split(" "):
             self.emit("reply_chunk", {
                 "stream": True, "text": word + " ", "label": "Reply",
@@ -371,9 +351,7 @@ class SendReplyStage(BaseStage):
         self.emit("reply_sent", {
             "ticket_id": ticket_id, "channel": channel, "chars": len(reply),
         })
-        # what a plan would actually meter a support bot by: messages out, and
-        # how much was written. Neither is known before the reply exists, so
-        # both are charged and neither is reserved
+        # Charged after the fact: the size of the reply is not known before.
         self.charge(replies_sent=1, reply_chars=len(reply))
         self.set_outputs({"sent": True, "chars": len(reply)})
 
@@ -416,10 +394,9 @@ class EscalateStage(BaseStage):
         ticket_id = str(args.get("ticket_id") or "T-????")
         queue = str(args.get("queue") or "tier-2")
         reason = str(args.get("reason") or "no reason given")
-        # derived from the ticket id rather than random: a demo that prints a
-        # different number every run is a demo nobody can point at
+        # Derived from the ticket id, not random, so runs are reproducible.
         task_id = f"HUMAN-{ticket_id.split('-')[-1]}"
         self.emit("escalated", {"ticket_id": ticket_id, "queue": queue, "reason": reason})
-        # the most expensive thing this bot can do is take up a person's time
+        # A person's time is the most expensive resource this bot uses.
         self.charge(escalations=1)
         self.set_outputs({"task_id": task_id, "queue": queue})

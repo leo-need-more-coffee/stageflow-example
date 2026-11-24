@@ -1,28 +1,17 @@
-"""Who is calling, and therefore which plan the run is on.
+"""Authentication: which plan a request runs on.
 
-Deliberately *here* and not in the core. StageFlow knows `Policy` — what a
-caller may compose and how much it may spend — and knows nothing about
-tokens, headers, sessions or tenants, because every platform already has its
-own answer to those and would have to fight the framework's. The core takes a
-policy; producing one out of an HTTP request is this file, forty lines of it,
-and a real backend replaces it with its own without touching anything else.
+The core only knows `Policy`; tokens and tenants are the backend's concern,
+so this module turns a request into a plan. A real backend would replace it.
 
-What the example demonstrates is not the token scheme (it is the crudest one
-possible) but **where the check happens**. A client may ask to be *shown* any
-plan it likes — ``/api/meta?plan=pro`` — and gets an honest answer about what
-that plan allows without having to be entitled to it: drawing is not running,
-and a name is not a permission. The plan a run is *executed* under is never
-taken from the request that way; it is resolved here, from the credential,
-and a graph drawn against a wider plan is refused rather than quietly
-narrowed.
+The token scheme is deliberately simple. What matters is where the check
+happens: a client may ask to *see* any plan (`/api/meta?plan=pro`), but a
+run always uses the plan of the caller's credential.
 
-Configuring it::
+Configuration::
 
     SF_TOKENS="demo-basic:basic,demo-pro:pro" python main.py
 
-Nothing configured — no tokens, no authentication: the example stays an
-example that starts and works. Configure one token and every endpoint starts
-demanding one, which is the behaviour to point at.
+Without tokens there is no authentication and every caller gets `full`.
 """
 from __future__ import annotations
 
@@ -34,9 +23,7 @@ from fastapi import Depends, HTTPException, Request
 
 from app.plans import OPEN_PLAN, known
 
-#: Which header the credential arrives in. A setting rather than a constant
-#: because backends disagree: `Authorization: Bearer …`, `X-Api-Key: …`, a
-#: gateway header put there by something upstream.
+#: Header that carries the credential (`Authorization`, `X-Api-Key`, ...).
 AUTH_HEADER = os.environ.get("SF_AUTH_HEADER", "Authorization")
 
 
@@ -52,17 +39,12 @@ def _parse_tokens(raw: str) -> dict[str, str]:
 
 TOKENS: dict[str, str] = _parse_tokens(os.environ.get("SF_TOKENS", ""))
 
-#: Whether this process tells callers apart at all.
+#: Whether authentication is enabled.
 ENABLED = bool(TOKENS)
 
 
 def credential(request: Request) -> str | None:
-    """The token out of the header, with an optional scheme in front of it.
-
-    ``Bearer abc`` and a bare ``abc`` both give ``abc``: which of the two a
-    client sends is a matter of habit, and refusing one of them teaches
-    nothing.
-    """
+    """The token from the header; `Bearer abc` and `abc` both give `abc`."""
     raw = (request.headers.get(AUTH_HEADER) or "").strip()
     if not raw:
         return None
@@ -71,7 +53,7 @@ def credential(request: Request) -> str | None:
 
 
 def caller_plan(request: Request) -> str:
-    """The plan this request is entitled to. The authoritative answer."""
+    """The plan this request is entitled to."""
     if not ENABLED:
         return OPEN_PLAN
     token = credential(request)
@@ -84,8 +66,7 @@ def caller_plan(request: Request) -> str:
     return plan
 
 
-#: How the plan in an answer was arrived at, so that a client can say whether
-#: it is looking at its own allowance or at a what-if.
+#: Where the plan in a response came from: `query`, `token` or `open`.
 def source_of(requested: str | None) -> str:
     if requested:
         return "query"
@@ -96,14 +77,9 @@ CallerPlan = Annotated[str, Depends(caller_plan)]
 
 
 def caller_id(request: Request, _plan: CallerPlan) -> str | None:
-    """Who is calling, as far as owning a run goes: a digest of the token.
-
-    A run belongs to the credential that started it. Two tenants on the same
-    plan are still two tenants, so the plan is not the answer; the token is,
-    and it is kept as a digest so that the table of runs is not also a table
-    of credentials. With no tokens configured there is nobody to tell apart:
-    ``None``, and every run belongs to everyone, as before.
-    """
+    """The caller's identity for run ownership: a SHA-256 digest of the token
+    (so the run table does not store credentials). None when authentication
+    is off, in which case runs are shared."""
     if not ENABLED:
         return None
     token = credential(request) or ""

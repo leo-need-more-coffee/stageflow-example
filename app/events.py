@@ -1,10 +1,8 @@
-"""The event log of a run and its way out to the browser.
+"""The event log of a run and the SSE stream that sends it to the browser.
 
-The events are what a debugger needs to show: ``node_enter`` / ``node_exit``
-with the frame, ``paused`` (stopped, waiting for a step), session telemetry
-(``stage_started``, ``stage_failed``, ``condition_evaluated``, …), ``var_set``
-/ ``var_rejected``, ``finished`` with the result and artifacts, or ``failed``
-with the error.
+Events include `node_enter`/`node_exit` with the frame, `paused`, session
+telemetry (`stage_started`, `condition_evaluated`, ...), `var_set`/
+`var_rejected`, and finally `finished` or `failed`.
 """
 from __future__ import annotations
 
@@ -14,8 +12,7 @@ from typing import Any
 
 
 def jsonable(value: Any) -> Any:
-    """Frame values can be anything (a stage object, a set) — what survives
-    JSON goes into the event stream as it is, the rest as a string."""
+    """Convert a value for JSON: anything JSON cannot hold becomes its repr."""
     if isinstance(value, dict):
         return {str(k): jsonable(v) for k, v in value.items()}
     if isinstance(value, (list, tuple)):
@@ -26,7 +23,7 @@ def jsonable(value: Any) -> Any:
 
 
 def telemetry_to_dict(event: Any) -> dict:
-    """Session telemetry in a shape fit for the event stream."""
+    """A session event as an event-stream dict."""
     return {
         "type": event.type,
         "node": event.stage_id,
@@ -36,12 +33,8 @@ def telemetry_to_dict(event: Any) -> dict:
 
 
 class EventBus:
-    """The event log of a run, with subscribers.
-
-    A log rather than a plain queue: a subscriber arrives over a separate HTTP
-    request after the start, and without history it would miss the beginning —
-    and in debugging the beginning is the interesting part.
-    """
+    """A run's event log with subscribers. Keeps the full history, because a
+    subscriber connects after the run has started and must see the start."""
 
     def __init__(self, mask: Any = None) -> None:
         self._items: list[dict] = []
@@ -57,9 +50,8 @@ class EventBus:
         if self.mask:
             event = self.mask(event)
         with self._cond:
-            # the event number is part of the event itself: a subscriber can
-            # read the stream from where it broke off (`?from=N`) without
-            # consulting anything else
+            # Each event carries its index, so a client can resume with
+            # `?from=N`.
             self._items.append({**event, "index": len(self._items)})
             self._cond.notify_all()
 
@@ -69,9 +61,8 @@ class EventBus:
             self._cond.notify_all()
 
     def follow(self, start: int = 0, timeout: float = 30.0):
-        """Generator: yields events from ``start``, waits for new ones, ends
-        together with the run. ``timeout`` is how often to yield ``None`` —
-        "nothing yet" — so that the connection is not taken for a hung one."""
+        """Yield events from `start`, waiting for new ones, until the run ends.
+        Yields None every `timeout` seconds as a keep-alive."""
         index = start
         while True:
             with self._cond:
@@ -90,7 +81,7 @@ class EventBus:
 
 
 def sse_lines(bus: EventBus, start: int = 0):
-    """SSE frames for the event stream: ``data: {...}`` or a heartbeat comment."""
+    """SSE frames: `data: {...}` per event, or a keep-alive comment."""
     for event in bus.follow(start):
         if event is None:
             yield b": keep-alive\n\n"

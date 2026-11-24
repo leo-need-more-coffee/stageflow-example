@@ -1,26 +1,22 @@
-"""The secrets of a run: which ones the server has, and hiding them again.
+"""Secrets: which ones the server has, and masking them in the output.
 
-The server hands out NAMES and substitutes VALUES itself. A page that could
-ask for the value of a variable would only have to name ``AWS_SECRET_KEY`` to
-get it, and the editor does not need it: a pipeline reads the key as an
-ordinary variable, and the run is where the substitution happens.
+The server only gives out secret names and substitutes the values itself.
+A pipeline reads a secret as an ordinary variable.
 """
 from __future__ import annotations
 
 import os
 from typing import Any
 
-#: Where the server takes secrets from: comma-separated names in ``SF_SECRETS``
-#: and/or variables prefixed with ``SF_SECRET_`` (the name is what follows the
-#: prefix). An explicit list rather than "the whole environment": handing the
-#: browser a list of every variable on the machine is a bad idea by itself.
+#: Secrets are the names listed in `SF_SECRETS` plus variables prefixed with
+#: `SF_SECRET_` (the name is the rest). Never the whole environment.
 SECRET_PREFIX = "SF_SECRET_"
 
-MASK = "•" * 8  # the same the editor shows (secrets.js)
+MASK = "•" * 8  # same as the editor (secrets.js)
 
 
 def env_secret_names() -> list[str]:
-    """Names of the secrets available to the server. Names only: values stay here."""
+    """Names of the secrets available on the server."""
     names = {
         part.strip()
         for part in (os.environ.get("SF_SECRETS") or "").split(",")
@@ -35,31 +31,23 @@ def env_secret_names() -> list[str]:
 
 
 def env_secret_value(name: str) -> str | None:
-    """Value of an environment secret — under the prefixed name or as it is.
-
-    Only ever called for a name the server itself declared a secret (see
-    :meth:`app.runs.RunManager.start`): otherwise a run request could name any
-    variable of the server environment and read it back out of the starting
-    frame.
-    """
+    """A secret's value, from `SF_SECRET_<name>` or `<name>`. Only call it for
+    names from `env_secret_names()` (see `RunManager._starting_frame`)."""
     prefixed = os.environ.get(SECRET_PREFIX + name)
     return prefixed if prefixed is not None else os.environ.get(name)
 
 
 class Masker:
-    """Scrubs secret values out of everything that goes to the browser.
+    """Masks secrets in everything sent to the browser.
 
-    The run sees the key when it has to — a stage needs it — but the debugger
-    shows the FRAME and the event log, and without this the key would be back
-    in the page with the very first `node_enter`, and from there in a
-    screenshot. We hide by two signs: by variable name (in the frame
-    dictionaries) and by the value itself (stage arguments in telemetry — the
-    name there is already a different one).
+    A stage may need the secret, but the debugger shows the frame and the
+    events. Values are masked by variable name (in the frame) and by value
+    (anywhere, e.g. in stage arguments in telemetry).
     """
 
     def __init__(self, names: set[str], values: set[str]) -> None:
         self._names = {n for n in names if n}
-        # an empty string would match everything, a one-character key almost so
+        # Very short values would match too much text.
         self._values = {v for v in values if isinstance(v, str) and len(v) >= 4}
 
     def __bool__(self) -> bool:
@@ -69,9 +57,8 @@ class Masker:
         if key is not None and key in self._names:
             return MASK
         if isinstance(data, str):
-            # inside a longer string too: an error message, a header echoed
-            # back or a log line carries the key with other text around it.
-            # Longest first, so that a key containing another is masked whole
+            # Also inside longer strings (error messages, echoed headers).
+            # Longest first, so a secret containing another is masked whole.
             for value in sorted(self._values, key=len, reverse=True):
                 if value in data:
                     data = data.replace(value, MASK)

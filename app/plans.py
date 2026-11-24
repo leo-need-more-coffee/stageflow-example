@@ -1,46 +1,35 @@
-"""The plans this backend serves, and the policy each one is.
+"""The plans this backend offers, each a `Policy`.
 
-A real platform looks a tenant up, finds their subscription and builds the
-policy from it. This is an example backend, so the plans are a table and the
-tenant is whoever presents a token (``app/auth.py``) — the point being what a
-plan *is* and where it is checked, not where it was stored.
-
-The mapping lives here and not in the core on purpose. The core knows
-`Policy`; the words "plan", "basic" and "pro" are the platform's business, and
-so is the price list that turns the meters in a result into an invoice.
+A real platform would build the policy from a tenant's subscription; here
+plans are a table and the tenant is whoever presents a token (`app.auth`).
+Plan names and pricing belong to the backend, not the core.
 """
 from __future__ import annotations
 
 from stageflow import Limits, Policy
 
-#: The stages of the bot that need no model and no network: everything in
-#: ``app/stages/support.py``. Named as a list rather than "everything except
-#: the LLM ones", because a plan that is defined by subtraction grows a hole
-#: the day somebody registers a stage.
+#: Stages that need no model or network (everything in `app/stages/support.py`).
+#: Listed explicitly so that newly registered stages are not added by accident.
 RULES_ONLY = {
     "LoadTicketStage", "LoadCustomerStage", "ClassifyByRulesStage",
     "SearchKnowledgeStage", "RenderReplyStage", "SendReplyStage",
     "EscalateStage",
 }
 
-#: The core's own small stages — setting a variable, concatenating two. Every
-#: plan gets them: they are the plumbing a graph is wired with, and a tier
-#: that cannot set a variable is not a cheaper tier but a broken one.
+#: The core's basic data stages; every plan needs them to wire a graph.
 PLUMBING = {"SetValueStage", "CopyValueStage", "ConcatStage", "TemplateStage"}
 
 PLANS: dict[str, Policy] = {
-    # everything this backend registers, with room to work
+    # Everything this backend registers, with generous limits.
     "full": Policy(),
     "basic": Policy(
-        # no model calls at all: the keyword rules are in, the LLM is not.
-        # `06-rules-only.json` is the pipeline this plan is built around —
-        # a tier that can run nothing at all teaches nothing about tiers
+        # No model calls: keyword rules only. `06-rules-only.json` is the
+        # pipeline built for this plan.
         stages=RULES_ONLY | PLUMBING,
         node_types={"entry", "stage", "condition", "switch", "terminal"},
         limits=Limits(
             counters={"seconds": 15, "steps": 200, "iterations": 50,
-                      # the business meters, which is what a support plan
-                      # would really be sold by
+                      # Business meters, which a support product would bill by.
                       "kb_lookups": 20, "replies_sent": 1, "escalations": 1},
             gauges={"concurrency": 2, "depth": 2, "frame_bytes": 200_000},
             max_retries=2,
@@ -48,7 +37,7 @@ PLANS: dict[str, Policy] = {
         ),
     ),
     "pro": Policy(
-        node_types=None,  # every type the core has
+        node_types=None,  # all node types
         limits=Limits(
             counters={"seconds": 120, "steps": 5_000, "iterations": 2_000,
                       "tokens": 200_000, "llm_calls": 100,
@@ -61,15 +50,12 @@ PLANS: dict[str, Policy] = {
     ),
 }
 
-#: Who a caller is when this process tells nobody apart — no tokens
-#: configured (``app/auth.py``). The unrestricted one, because an example
-#: nobody has restricted should behave like an example.
+#: The plan used when authentication is off (no tokens configured).
 OPEN_PLAN = "full"
 
 
 def plan_names() -> list[str]:
-    """The plans a client may ask to be shown. Answered to anyone: a name is
-    not a permission, and a client that cannot see the list cannot offer it."""
+    """Plan names a client may ask about (public: a name grants nothing)."""
     return sorted(PLANS)
 
 
@@ -78,7 +64,6 @@ def known(name: str | None) -> bool:
 
 
 def policy_for(name: str) -> Policy:
-    """The policy of a plan. The name must be one — every caller either got
-    it from :func:`known` or from the token table, which drops what it does
-    not recognise, so an unknown one here is a bug and says so."""
+    """The policy of a plan. Callers only pass known names, so an unknown
+    one raises KeyError."""
     return PLANS[name]

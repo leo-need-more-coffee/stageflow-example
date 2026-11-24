@@ -1,9 +1,5 @@
-"""The bodies of the run API.
-
-Declared rather than picked apart with ``dict.get``: the editor's commands are
-a small fixed set, and a wrong one should come back as one clear message
-instead of an exception from somewhere inside the core.
-"""
+"""Request bodies of the run API, validated by pydantic so that a bad
+command gets a clear error message."""
 from __future__ import annotations
 
 from typing import Any, Literal
@@ -12,18 +8,16 @@ from pydantic import BaseModel, Field
 
 
 class Secrets(BaseModel):
-    """Names, never values: ``env`` are the ones the server declared its own
-    and substitutes itself, ``names`` is every secret of the run — those are
-    what gets scrubbed out of the events."""
+    """Secret names, never values. `env`: server-side secrets to substitute;
+    `names`: all secret variables of the run, masked in the events."""
 
     env: list[str] = []
     names: list[str] = []
 
 
 class RunRequest(BaseModel):
-    #: The plan the client drew this graph against, if it knows. NOT a choice
-    #: of plan — the run goes on whatever the credentials resolve to — but
-    #: saying it turns "stage X is not allowed" into "you are on basic".
+    #: The plan the client drew against (not a choice of plan: the run uses
+    #: the caller's). Used to explain a refusal by plan.
     plan: str | None = None
     pipeline: dict[str, Any] = {}
     vars: dict[str, Any] = {}
