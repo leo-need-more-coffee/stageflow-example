@@ -69,7 +69,13 @@ class Masker:
         if key is not None and key in self._names:
             return MASK
         if isinstance(data, str):
-            return MASK if data in self._values else data
+            # inside a longer string too: an error message, a header echoed
+            # back or a log line carries the key with other text around it.
+            # Longest first, so that a key containing another is masked whole
+            for value in sorted(self._values, key=len, reverse=True):
+                if value in data:
+                    data = data.replace(value, MASK)
+            return data
         if isinstance(data, dict):
             return {k: self(v, k if isinstance(k, str) else None) for k, v in data.items()}
         if isinstance(data, (list, tuple)):

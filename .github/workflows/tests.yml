@@ -18,3 +18,5 @@ jobs:
       - run: python -m flake8 .
       - name: The pipelines are valid and the full one runs without a key
         run: python check_pipelines.py
+      - name: Unit tests, and the server over HTTP
+        run: python -m unittest discover -s tests -t . -v
